@@ -194,6 +194,13 @@ class MockBackend:
             return "\n".join(
                 f"{i + 1}) {text}" for i, (text, _, _, _) in enumerate(self.pool)
             )
+        if "RATE THE REPLY" in prompt:  # chat-mode rubric judge
+            return (
+                f"Relevance: [[{verdict}]], Helpfulness: [[{verdict}]], "
+                f"Coherence: [[{verdict}]]"
+            )
+        if "Reply directly and helpfully" in prompt:  # chat-mode modal reply
+            return self.pool[0][0]
         if "Present this step" in prompt:  # Stage 1 wrap step
             found = next((t for t in self._quality if t in prompt), "the chosen step")
             return f"To solve it: {found}"
@@ -246,3 +253,79 @@ def parse_json_object(raw: str) -> dict | None:
         except json.JSONDecodeError:
             return None
     return None
+
+
+class OpenAIBackend:
+    """Backend for any OpenAI-compatible endpoint.
+
+    Covers a trained unsloth model served via vLLM (OpenAI-compatible API),
+    a Colab-tunnelled endpoint, or other compatible servers. Configure via
+    ``base_url`` / ``api_key`` (or CS_API_BASE_URL / CS_API_KEY). Many local
+    servers accept any key, so it defaults to ``"EMPTY"``.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        embed_model: str | None = None,
+    ) -> None:
+        from openai import OpenAI  # requires the `api` extra
+
+        self.model = model
+        self.embed_model = embed_model or model
+        self._client = OpenAI(
+            base_url=base_url or os.getenv("CS_API_BASE_URL"),
+            api_key=api_key or os.getenv("CS_API_KEY") or "EMPTY",
+            timeout=float(os.getenv("CS_API_TIMEOUT", "120")),
+            max_retries=1,
+        )
+
+    def generate_samples(
+        self, prompt: str, n: int, temperature: float, max_tokens: int = 128
+    ) -> list[GenSample]:
+        """Draw ``n`` samples, summing token logprobs when the server gives them."""
+        out: list[GenSample] = []
+        for _ in range(n):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    logprobs=True,
+                )
+            except Exception:  # server may reject logprobs -> retry without
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            choice = resp.choices[0]
+            lp: float | None = None
+            content = getattr(choice, "logprobs", None)
+            if content and getattr(content, "content", None):
+                lp = float(sum(t.logprob for t in content.content))
+            out.append(GenSample((choice.message.content or "").strip(), lp))
+        return out
+
+    def chat(
+        self, prompt: str, temperature: float = 0.0, num_predict: int | None = None
+    ) -> str:
+        """One completion for a judge / pipeline call."""
+        resp = self._client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=num_predict,
+        )
+        if not hasattr(resp, "choices"):
+            raise RuntimeError(f"unexpected API response from {self.model}: {resp!r}")
+        return (resp.choices[0].message.content or "").strip()
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed via an OpenAI-compatible embeddings endpoint."""
+        resp = self._client.embeddings.create(model=self.embed_model, input=texts)
+        return [list(d.embedding) for d in resp.data]

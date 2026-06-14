@@ -113,5 +113,11 @@ def make_entailment(kind: str, backend: LLMBackend, **kwargs) -> EntailmentModel
     if kind == "embedding":
         return EmbeddingEntailment(backend, **kwargs)
     if kind == "deberta":
+        import os
+
+        kwargs.setdefault(
+            "model_name",
+            os.getenv("CS_DEBERTA_MODEL", "tasksource/deberta-base-long-nli"),
+        )
         return DebertaEntailment(**kwargs)
     raise ValueError(f"unknown entailment kind: {kind!r}")

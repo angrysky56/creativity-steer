@@ -8,6 +8,14 @@ __pycache__/
 .venv/
 uv.lock
 
+# Frontend
+web/node_modules/
+web/dist/
+
+# Runtime
+.run/
+logs/
+
 # Env + outputs
 .env
 results/

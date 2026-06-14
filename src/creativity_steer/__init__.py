@@ -16,7 +16,10 @@ from creativity_steer.backends import (
     LLMBackend,
     MockBackend,
     OllamaBackend,
+    OpenAIBackend,
 )
+from creativity_steer.config import backend_summary, build_backend, load_env
+from creativity_steer.chat import ChatConfig, chat_turn, chat_turn_stream
 from creativity_steer.entailment import make_entailment
 from creativity_steer.judge import JudgeResult, multi_agent_judge
 from creativity_steer.reference import novelty_vs_reference
@@ -49,7 +52,14 @@ __all__ = [
     "LLMBackend",
     "MockBackend",
     "OllamaBackend",
+    "OpenAIBackend",
+    "build_backend",
+    "backend_summary",
+    "load_env",
     "make_entailment",
+    "ChatConfig",
+    "chat_turn",
+    "chat_turn_stream",
     "JudgeResult",
     "multi_agent_judge",
     "novelty_vs_reference",

@@ -57,6 +57,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI main: run strategies and print a comparison table."""
+    from creativity_steer.config import load_env
+
+    load_env()
     args = _parse_args(argv)
     backend = _build_backend(args)
     ent_kwargs = (
