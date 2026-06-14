@@ -1,0 +1,32 @@
+[project]
+name = "creativity-steer"
+version = "0.1.0"
+description = "Turn the creativity-eval metrics (semantic entropy + rubric judge) into a generation-time steering signal via Pareto selection."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Ty", email = "tyhall418@gmail.com" }]
+dependencies = [
+    "numpy>=2.1,<3",
+    "ollama>=0.4,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9"]
+# Opt-in: the paper's exact DeBERTa-NLI entailment model. Pulls in torch.
+# Install with: uv sync --extra deberta
+deberta = ["transformers>=4.45,<5", "torch>=2.4"]
+
+[project.scripts]
+creativity-steer = "creativity_steer.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.6,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "creativity_steer"
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
