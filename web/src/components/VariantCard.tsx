@@ -60,8 +60,17 @@ export function VariantCard({
       <div className="variant-text">{item.text}</div>
       {score ? (
         <div className="variant-bars">
-          <Bar label="novelty" value={score.novelty} kind="nov" />
-          <Bar label="quality" value={score.quality} kind="qual" />
+          {score.scores ? (
+            Object.entries(score.scores).map(([name, val]) => {
+              const kind = name === "novelty" ? "nov" : name === "quality" ? "qual" : name === "coherence" ? "coh" : name;
+              return <Bar key={name} label={name} value={val} kind={kind} />;
+            })
+          ) : (
+            <>
+              <Bar label="novelty" value={score.novelty} kind="nov" />
+              <Bar label="quality" value={score.quality} kind="qual" />
+            </>
+          )}
         </div>
       ) : (
         <div className="variant-pending">

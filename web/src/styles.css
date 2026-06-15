@@ -24,6 +24,8 @@
   --nov-glow: hsla(271, 91%, 72%, 0.2);
   --qual: hsl(150, 84%, 44%);
   --qual-glow: hsla(150, 84%, 44%, 0.2);
+  --coh: hsl(190, 90%, 50%);
+  --coh-glow: hsla(190, 90%, 50%, 0.2);
   --chosen: hsl(45, 93%, 47%);
   --chosen-glow: hsla(45, 93%, 47%, 0.25);
   --modal: hsl(210, 20%, 45%);
@@ -1094,6 +1096,11 @@ input[type="range"]::-moz-range-progress {
   box-shadow: 0 0 8px var(--qual-glow);
 }
 
+.bar-fill.coh {
+  background: linear-gradient(90deg, hsl(190, 90%, 35%) 0%, var(--coh) 100%);
+  box-shadow: 0 0 8px var(--coh-glow);
+}
+
 .bar-val {
   width: 32px;
   text-align: right;
@@ -1101,4 +1108,187 @@ input[type="range"]::-moz-range-progress {
   font-family: var(--font-mono);
   font-weight: 500;
   font-size: 10.5px;
+}
+
+/* --- PROFILE SELECTOR & TOGGLES --- */
+.controls-container {
+  display: flex;
+  flex-direction: column;
+  background-color: rgba(0,0,0,0.15);
+  animation: slide-down 0.2s ease-out;
+}
+
+.profile-selector-section {
+  padding: 16px 20px 8px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.profile-pill {
+  background-color: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.profile-pill:hover:not(:disabled) {
+  border-color: var(--line-light);
+  color: var(--text);
+  background-color: var(--line);
+}
+
+.profile-pill.active {
+  background-color: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--text);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.profile-pill.custom {
+  background-color: rgba(255, 193, 7, 0.08);
+  border-color: rgba(255, 193, 7, 0.3);
+  color: hsl(45, 100%, 75%);
+  cursor: default;
+}
+
+.profile-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* Custom styled toggles */
+.toggles-item {
+  grid-column: span 2;
+}
+
+.toggles-row {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-container input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.toggle-label-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* --- SELF-TUNING CONTROLLER STATUS --- */
+.controller-status-card {
+  background-color: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fade-in-up 0.25s ease-out;
+}
+
+.controller-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.controller-title {
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.controller-title-icon {
+  font-size: 14px;
+}
+
+.controller-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  background-color: var(--accent-glow);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(110, 168, 254, 0.2);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.metric-box {
+  background-color: rgba(255,255,255,0.015);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metric-box-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.metric-box-val {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.controller-details-row {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.controller-detail-item strong {
+  color: var(--text);
+  font-weight: 500;
 }

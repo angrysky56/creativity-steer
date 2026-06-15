@@ -227,8 +227,13 @@ export function ParetoPlot({
             {(() => {
               const cx = getX(hoveredPoint.novelty);
               const cy = getY(hoveredPoint.quality);
+              
+              const scoreObj = trace.scores[hoveredPoint.index];
+              const coh = scoreObj?.scores?.coherence;
+              const hasCoh = coh !== undefined;
+
               const tWidth = 140;
-              const tHeight = 62;
+              const tHeight = hasCoh ? 78 : 62;
               const xPos = cx > width - tWidth - 20 ? cx - tWidth - 10 : cx + 10;
               const yPos = cy > height - tHeight - 30 ? cy - tHeight - 10 : cy + 10;
 
@@ -271,6 +276,14 @@ export function ParetoPlot({
                       {hoveredPoint.quality.toFixed(2)}
                     </tspan>
                   </text>
+                  {hasCoh && (
+                    <text x={xPos + 8} y={yPos + 66} className="tooltip-stat">
+                      Coherence:{" "}
+                      <tspan fontWeight="500" fill="var(--coh)">
+                        {coh.toFixed(2)}
+                      </tspan>
+                    </text>
+                  )}
                 </g>
               );
             })()}

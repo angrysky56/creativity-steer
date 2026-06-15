@@ -37,10 +37,14 @@ class ChatRequest(BaseModel):
     message: str
     history: list[dict[str, str]] = []
     k: int = 5
-    novelty_weight: float = 0.5
-    coherence_weight: float = 0.0
-    convergent_floor: float = 0.34
-    temperature: float = 0.9
+    novelty_weight: float = 0.35
+    coherence_weight: float = 0.2
+    convergent_floor: float = 0.4
+    temperature: float = 0.7
+    breadth_k: int = 10
+    prime_n: int = 4
+    branch: bool = False
+    synthesize: bool = False
 
 
 def _build_state() -> dict:
@@ -114,6 +118,8 @@ def chat(req: ChatRequest) -> StreamingResponse:
         k=req.k, temperature=req.temperature,
         novelty_weight=req.novelty_weight, coherence_weight=req.coherence_weight,
         convergent_floor=req.convergent_floor,
+        breadth_k=req.breadth_k, prime_n=req.prime_n,
+        branch=req.branch, synthesize=req.synthesize,
     )
 
     def event_gen():

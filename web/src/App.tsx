@@ -5,12 +5,88 @@ import { TracePanel } from "./components/Trace";
 import { emptyTrace } from "./types";
 import type { ChatMessage, Config, Trace } from "./types";
 
-const DEFAULT_CONFIG: Config = {
-  k: 5,
-  novelty_weight: 0.5,
-  convergent_floor: 0.34,
-  temperature: 0.9,
+const PROFILES = {
+  low: {
+    name: "Low Exploration (Deterministic)",
+    desc: "Focuses on high-quality, closely aligned answers. Fast and highly coherent.",
+    config: {
+      k: 3,
+      novelty_weight: 0.15,
+      coherence_weight: 0.3,
+      convergent_floor: 0.55,
+      temperature: 0.4,
+      breadth_k: 0,
+      prime_n: 0,
+      branch: false,
+      synthesize: false,
+    },
+  },
+  mediumLow: {
+    name: "Medium Low (Balanced & Grounded)",
+    desc: "Balanced, moderately safe exploration with guided candidate selection.",
+    config: {
+      k: 5,
+      novelty_weight: 0.35,
+      coherence_weight: 0.2,
+      convergent_floor: 0.4,
+      temperature: 0.7,
+      breadth_k: 10,
+      prime_n: 4,
+      branch: false,
+      synthesize: false,
+    },
+  },
+  medium: {
+    name: "Medium (Creative)",
+    desc: "The default creative steer profile. Explores unique alternative perspectives.",
+    config: {
+      k: 5,
+      novelty_weight: 0.5,
+      coherence_weight: 0.0,
+      convergent_floor: 0.34,
+      temperature: 0.9,
+      breadth_k: 0,
+      prime_n: 0,
+      branch: false,
+      synthesize: false,
+    },
+  },
+  high: {
+    name: "High (Wild Breadth & Deep Synthesis)",
+    desc: "Generates wide candidate pools, deepens prime candidates, and merges them.",
+    config: {
+      k: 8,
+      novelty_weight: 0.65,
+      coherence_weight: 0.15,
+      convergent_floor: 0.3,
+      temperature: 1.2,
+      breadth_k: 15,
+      prime_n: 5,
+      branch: true,
+      synthesize: true,
+    },
+  },
 };
+
+const getActiveProfileKey = (currentConfig: Config): string => {
+  for (const [key, profile] of Object.entries(PROFILES)) {
+    const pc = profile.config;
+    const match =
+      currentConfig.k === pc.k &&
+      Math.abs(currentConfig.novelty_weight - pc.novelty_weight) < 0.01 &&
+      Math.abs(currentConfig.coherence_weight - pc.coherence_weight) < 0.01 &&
+      Math.abs(currentConfig.convergent_floor - pc.convergent_floor) < 0.01 &&
+      Math.abs(currentConfig.temperature - pc.temperature) < 0.01 &&
+      currentConfig.breadth_k === pc.breadth_k &&
+      currentConfig.prime_n === pc.prime_n &&
+      currentConfig.branch === pc.branch &&
+      currentConfig.synthesize === pc.synthesize;
+    if (match) return key;
+  }
+  return "custom";
+};
+
+const DEFAULT_CONFIG: Config = PROFILES.mediumLow.config;
 
 export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -223,8 +299,11 @@ export function App() {
                 <span className="toggle-icon">⚙️</span>
                 <span className="toggle-label">Tuning Parameters</span>
                 <span className="toggle-summary">
-                  {!configExpanded &&
-                    `k=${config.k} | novelty=${config.novelty_weight.toFixed(2)} | floor=${config.convergent_floor.toFixed(2)} | temp=${config.temperature.toFixed(2)}`}
+                  {!configExpanded && (() => {
+                    const profileKey = getActiveProfileKey(config);
+                    const profileLabel = profileKey === "mediumLow" ? "Medium Low" : profileKey.charAt(0).toUpperCase() + profileKey.slice(1);
+                    return `Profile: ${profileLabel} | k=${config.k} | novelty=${config.novelty_weight.toFixed(2)} | temp=${config.temperature.toFixed(2)}`;
+                  })()}
                 </span>
                 <span className="chevron">{configExpanded ? "▼" : "▲"}</span>
               </button>
@@ -282,7 +361,11 @@ function reduce(t: Trace, ev: import("./types").TraceEvent): Trace {
     case "selected":
       return { ...t, frontier: ev.frontier, selected: ev.index };
     case "response":
-      return { ...t, done: true };
+      return { ...t, done: true, synthesized: ev.synthesized ?? false };
+    case "controller":
+      return { ...t, controller: ev };
+    case "synthesis":
+      return { ...t, synthesisSources: ev.sources };
     default:
       return t;
   }
@@ -295,81 +378,195 @@ interface CtlProps {
 }
 
 function Controls({ config, setConfig, disabled }: CtlProps) {
-  const set = (key: keyof Config) => (e: ChangeEvent<HTMLInputElement>) =>
+  const setNum = (key: keyof Config) => (e: ChangeEvent<HTMLInputElement>) =>
     setConfig({ ...config, [key]: Number(e.target.value) });
+  const setBool = (key: keyof Config) => (e: ChangeEvent<HTMLInputElement>) =>
+    setConfig({ ...config, [key]: e.target.checked });
+
+  const activeProfile = getActiveProfileKey(config);
 
   return (
-    <div className="controls-grid">
-      <div className="control-item">
-        <div className="control-header">
-          <label htmlFor="variants-k">Brainstorm Size (k)</label>
-          <span className="control-val">{config.k}</span>
+    <div className="controls-container">
+      {/* Exploration Profiles Selector */}
+      <div className="profile-selector-section">
+        <div className="profile-pills">
+          {Object.entries(PROFILES).map(([key, p]) => (
+            <button
+              key={key}
+              type="button"
+              className={`profile-pill ${activeProfile === key ? "active" : ""}`}
+              onClick={() => setConfig(p.config)}
+              disabled={disabled}
+            >
+              {key === "mediumLow" ? "Medium Low" : key.charAt(0).toUpperCase() + key.slice(1)}
+            </button>
+          ))}
+          {activeProfile === "custom" && (
+            <span className="profile-pill active custom">Custom</span>
+          )}
         </div>
-        <input
-          id="variants-k"
-          type="range"
-          min={3}
-          max={8}
-          step={1}
-          value={config.k}
-          onChange={set("k")}
-          disabled={disabled}
-        />
-        <div className="control-desc">Number of unique candidates to generate.</div>
+        <p className="profile-desc">
+          {activeProfile !== "custom"
+            ? PROFILES[activeProfile as keyof typeof PROFILES].desc
+            : "Manual adjustment of individual creativity and funnel parameters."}
+        </p>
       </div>
 
-      <div className="control-item">
-        <div className="control-header">
-          <label htmlFor="novelty-weight">Novelty Weight</label>
-          <span className="control-val">{config.novelty_weight.toFixed(2)}</span>
+      <div className="controls-grid">
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="variants-k">Brainstorm Size (k)</label>
+            <span className="control-val">{config.k}</span>
+          </div>
+          <input
+            id="variants-k"
+            type="range"
+            min={3}
+            max={8}
+            step={1}
+            value={config.k}
+            onChange={setNum("k")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Number of unique candidates to generate.</div>
         </div>
-        <input
-          id="novelty-weight"
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={config.novelty_weight}
-          onChange={set("novelty_weight")}
-          disabled={disabled}
-        />
-        <div className="control-desc">Preference for novelty vs. quality score.</div>
-      </div>
 
-      <div className="control-item">
-        <div className="control-header">
-          <label htmlFor="quality-floor">Quality Floor</label>
-          <span className="control-val">{config.convergent_floor.toFixed(2)}</span>
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="temperature">Creativity (Temp)</label>
+            <span className="control-val">{config.temperature.toFixed(2)}</span>
+          </div>
+          <input
+            id="temperature"
+            type="range"
+            min={0}
+            max={1.5}
+            step={0.05}
+            value={config.temperature}
+            onChange={setNum("temperature")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Randomness of alternative brainstorming.</div>
         </div>
-        <input
-          id="quality-floor"
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={config.convergent_floor}
-          onChange={set("convergent_floor")}
-          disabled={disabled}
-        />
-        <div className="control-desc">Minimum rubric grade required to select.</div>
-      </div>
 
-      <div className="control-item">
-        <div className="control-header">
-          <label htmlFor="temperature">Creativity (Temp)</label>
-          <span className="control-val">{config.temperature.toFixed(2)}</span>
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="novelty-weight">Novelty Weight</label>
+            <span className="control-val">{config.novelty_weight.toFixed(2)}</span>
+          </div>
+          <input
+            id="novelty-weight"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={config.novelty_weight}
+            onChange={setNum("novelty_weight")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Preference for novelty vs. quality score.</div>
         </div>
-        <input
-          id="temperature"
-          type="range"
-          min={0}
-          max={1.5}
-          step={0.05}
-          value={config.temperature}
-          onChange={set("temperature")}
-          disabled={disabled}
-        />
-        <div className="control-desc">Randomness of alternative brainstorming.</div>
+
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="coherence-weight">Coherence Weight</label>
+            <span className="control-val">{config.coherence_weight.toFixed(2)}</span>
+          </div>
+          <input
+            id="coherence-weight"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={config.coherence_weight}
+            onChange={setNum("coherence_weight")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Preference for stable idea attractor basin depth.</div>
+        </div>
+
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="quality-floor">Quality Floor</label>
+            <span className="control-val">{config.convergent_floor.toFixed(2)}</span>
+          </div>
+          <input
+            id="quality-floor"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={config.convergent_floor}
+            onChange={setNum("convergent_floor")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Minimum rubric grade required to select.</div>
+        </div>
+
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="breadth-k">Breadth Candidates (breadth_k)</label>
+            <span className="control-val">{config.breadth_k === 0 ? "Off" : config.breadth_k}</span>
+          </div>
+          <input
+            id="breadth-k"
+            type="range"
+            min={0}
+            max={50}
+            step={5}
+            value={config.breadth_k}
+            onChange={setNum("breadth_k")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Generate this many total candidates (0 to disable).</div>
+        </div>
+
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="prime-n">Funnel Primes (prime_n)</label>
+            <span className="control-val">{config.prime_n === 0 ? "Off" : config.prime_n}</span>
+          </div>
+          <input
+            id="prime-n"
+            type="range"
+            min={0}
+            max={15}
+            step={1}
+            value={config.prime_n}
+            onChange={setNum("prime_n")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Keep this many diverse primes from candidate pool (0 to disable).</div>
+        </div>
+
+        <div className="control-item toggles-item">
+          <div className="toggles-row">
+            <label className="toggle-container" htmlFor="branch-check">
+              <input
+                id="branch-check"
+                type="checkbox"
+                checked={config.branch}
+                onChange={setBool("branch")}
+                disabled={disabled}
+              />
+              <span className="toggle-label-text">Deepen Candidates (Branch)</span>
+            </label>
+
+            <label className="toggle-container" htmlFor="synthesize-check">
+              <input
+                id="synthesize-check"
+                type="checkbox"
+                checked={config.synthesize}
+                onChange={setBool("synthesize")}
+                disabled={disabled}
+              />
+              <span className="toggle-label-text">Synthesize Frontier (Merge)</span>
+            </label>
+          </div>
+          <div className="control-desc" style={{ marginTop: "4px" }}>
+            Branching deepens primes. Synthesis merges the Pareto frontier into the final response.
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -81,6 +81,49 @@ export function TracePanel({ trace, streaming }: TracePanelProps) {
         </div>
       )}
 
+      {/* Self-Tuning Controller Card */}
+      {trace.controller && (
+        <div className="controller-status-card">
+          <div className="controller-header-row">
+            <span className="controller-title">
+              <span className="controller-title-icon">⚙️</span>
+              Self-Tuning Controller
+            </span>
+            <span className="controller-badge">Active</span>
+          </div>
+          <div className="metrics-grid">
+            <div className="metric-box">
+              <span className="metric-box-label">Exploration Rounds</span>
+              <span className="metric-box-val">{trace.controller.rounds}</span>
+            </div>
+            <div className="metric-box">
+              <span className="metric-box-label">Entropy Diversity</span>
+              <span className="metric-box-val">{trace.controller.diversity.toFixed(3)}</span>
+            </div>
+            <div className="metric-box">
+              <span className="metric-box-label">Final Temp</span>
+              <span className="metric-box-val">{trace.controller.final_temperature.toFixed(2)}</span>
+            </div>
+          </div>
+          <div className="controller-details-row">
+            <span className="controller-detail-item">
+              Breadth Funnel: <strong>{trace.controller.breadth} candidates</strong> → <strong>{trace.controller.primes || trace.variants.length} primes</strong>
+            </span>
+            <span className="controller-detail-item">
+              Quality Floor: <strong>{trace.controller.quality_floor.toFixed(2)}</strong>
+            </span>
+            <span className="controller-detail-item">
+              Branching: <strong>{trace.controller.branched ? "Yes" : "No"}</strong>
+            </span>
+            {trace.synthesisSources !== null && (
+              <span className="controller-detail-item">
+                Synthesis: <strong>Merged {trace.synthesisSources} sources</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Visual Pareto Frontier Plot */}
       {scoredCount > 0 && (
         <div className="plot-section card-container">
