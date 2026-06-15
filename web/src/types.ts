@@ -23,6 +23,7 @@ export type TraceEvent =
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  trace?: Trace;
 }
 
 export interface Config {
