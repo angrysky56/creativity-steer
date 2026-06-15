@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List
 
 import mcp.client.session
 import mcp.client.stdio
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ToolSpec:
+    """Specification of an available MCP tool."""
     name: str
     server: str
     description: str
@@ -29,6 +30,7 @@ class ToolSpec:
 
 @dataclass
 class ToolResult:
+    """Result of calling an MCP tool."""
     is_error: bool
     text: str
     content: List[Dict[str, Any]]
@@ -66,14 +68,14 @@ class McpClient:
 
     def _load_config(self) -> Dict[str, dict]:
         if not os.path.exists(self.config_path):
-            logger.warning(f"MCP config not found at {self.config_path}")
+            logger.warning("MCP config not found at %s", self.config_path)
             return {}
         try:
-            with open(self.config_path, "r") as f:
+            with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return data.get("mcpServers", {})
-        except Exception as e:
-            logger.error(f"Failed to load MCP config {self.config_path}: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Failed to load MCP config %s: %s", self.config_path, e)
             return {}
 
     def connect(self) -> McpClient:
@@ -89,7 +91,8 @@ class McpClient:
         for name, config in self.servers.items():
             if config.get("transport", "stdio") != "stdio":
                 logger.warning(
-                    f"Unsupported transport for server {name}: {config.get('transport')}"
+                    "Unsupported transport for server %s: %s",
+                    name, config.get('transport')
                 )
                 continue
 
@@ -117,9 +120,9 @@ class McpClient:
 
                 await session.initialize()
                 self._active_sessions[name] = session
-                logger.info(f"Connected to MCP server: {name}")
-            except Exception as e:
-                logger.error(f"Failed to connect to MCP server {name}: {e}")
+                logger.info("Connected to MCP server: %s", name)
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Failed to connect to MCP server %s: %s", name, e)
 
     def list_tools(self) -> List[ToolSpec]:
         """List available tools across all connected servers."""
@@ -132,7 +135,7 @@ class McpClient:
                 result = await session.list_tools()
                 for tool in result.tools:
                     fqn = f"{server_name}.{tool.name}"
-                    if self.whitelist and fqn not in self.whitelist:
+                    if self.whitelist is not None and fqn not in self.whitelist:
                         continue
 
                     tools.append(
@@ -143,8 +146,8 @@ class McpClient:
                             input_schema=tool.inputSchema,
                         )
                     )
-            except Exception as e:
-                logger.error(f"Failed to list tools for {server_name}: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Failed to list tools for %s: %s", server_name, e)
         return tools
 
     def call_tool(self, server: str, name: str, args: Dict[str, Any]) -> ToolResult:
@@ -161,7 +164,7 @@ class McpClient:
             )
 
         fqn = f"{server}.{name}"
-        if self.whitelist and fqn not in self.whitelist:
+        if self.whitelist is not None and fqn not in self.whitelist:
             return ToolResult(
                 is_error=True, text=f"Tool {fqn} not in whitelist", content=[]
             )
@@ -187,14 +190,14 @@ class McpClient:
                 text="\n".join(text_parts),
                 content=content_list,
             )
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             return ToolResult(is_error=True, text=str(e), content=[])
 
 
 class MockMcpClient:
     """Mock client for offline testing."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *_args, **_kwargs):
         self._tools = {
             "echo": lambda args: ToolResult(
                 is_error=False,
@@ -209,12 +212,15 @@ class MockMcpClient:
         }
 
     def connect(self) -> MockMcpClient:
+        """Connect to mock servers."""
         return self
 
     def disconnect(self):
+        """Disconnect mock servers."""
         pass
 
     def list_tools(self) -> List[ToolSpec]:
+        """List available mock tools."""
         return [
             ToolSpec(
                 "echo",
@@ -231,6 +237,7 @@ class MockMcpClient:
         ]
 
     def call_tool(self, server: str, name: str, args: Dict[str, Any]) -> ToolResult:
+        """Call a mock tool."""
         if server != "mock":
             return ToolResult(is_error=True, text="Unknown server", content=[])
         if name not in self._tools:
