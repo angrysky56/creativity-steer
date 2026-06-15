@@ -28,6 +28,7 @@ from creativity_steer.scoring import (
     select_multi,
 )
 from creativity_steer.variants import parse_numbered_list
+from creativity_steer.grounding import GroundingProvider
 
 
 @dataclass
@@ -43,11 +44,11 @@ class ChatConfig:
     convergent_floor: float = 0.34
     zero_out_modal_restatements: bool = True
     coherence_paraphrases: int = 2
-    openness_branches: int = 0   # 0 = skip the (expensive) openness axis
+    openness_branches: int = 0  # 0 = skip the (expensive) openness axis
     max_rounds: int = 2  # controller may explore extra rounds when collapsed
     # breadth -> funnel -> branch -> synthesize (all off by default)
-    breadth_k: int = 0   # 0 = single batch of k; else generate ~this many candidates
-    prime_n: int = 0     # 0 = no funnel; else keep this many diverse primes
+    breadth_k: int = 0  # 0 = single batch of k; else generate ~this many candidates
+    prime_n: int = 0  # 0 = no funnel; else keep this many diverse primes
     branch: bool = False  # deepen each prime candidate before scoring
     synthesize: bool = False  # merge the frontier set into one final reply
 
@@ -132,9 +133,10 @@ def chat_turn_stream(
             "type": "grounding",
             "memory": len(grounding_ctx.memory),
             "tools": len(grounding_ctx.tool_results),
-            "snippets": [m.content for m in grounding_ctx.memory] + [t.get("text", str(t)) for t in grounding_ctx.tool_results]
+            "snippets": [m.content for m in grounding_ctx.memory]
+            + [t.get("text", str(t)) for t in grounding_ctx.tool_results],
         }
-        
+
     modal_prompt_text = ctx_block + _modal_prompt(history, user_msg)
     brainstorm_prompt_text = ctx_block + _brainstorm_prompt(history, user_msg, config.k)
 
@@ -152,8 +154,9 @@ def chat_turn_stream(
         while len(variants) < config.breadth_k:
             rounds_used += 1
             raw = gen_backend.chat(
-                _brainstorm_prompt(history, user_msg, config.k),
-                temperature=temp, num_predict=500,
+                brainstorm_prompt_text,
+                temperature=temp,
+                num_predict=500,
             )
             variants += parse_numbered_list(raw, config.k)
             temp = min(1.3, round(temp + 0.1, 3))
@@ -162,8 +165,9 @@ def chat_turn_stream(
         for round_idx in range(max(1, config.max_rounds)):
             rounds_used += 1
             raw = gen_backend.chat(
-                _brainstorm_prompt(history, user_msg, config.k),
-                temperature=temp, num_predict=500,
+                brainstorm_prompt_text,
+                temperature=temp,
+                num_predict=500,
             )
             variants += parse_numbered_list(raw, config.k)
             nov = normalize_max(

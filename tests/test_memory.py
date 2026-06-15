@@ -4,6 +4,7 @@ import os
 import time
 
 import pytest
+
 from creativity_steer.backends import MockBackend
 from creativity_steer.memory import LocalMemoryStore, MemoryItem
 
@@ -31,7 +32,7 @@ def test_write_and_retrieve(memory_store):
         tags=["test"],
         impact=0.8,
     )
-    
+
     item2 = MemoryItem(
         id="2",
         created=time.time(),
@@ -43,16 +44,16 @@ def test_write_and_retrieve(memory_store):
         tags=["fruit"],
         impact=0.5,
     )
-    
+
     memory_store.write(item1)
     memory_store.write(item2)
-    
+
     # MockBackend embedding is just a deterministic vector. Since we rely on similarity,
     # the mock embeddings will all be [1.0] unless we mock it more carefully,
     # but let's test if both items are returned.
     results = memory_store.retrieve("lesson", k=2)
     assert len(results) == 2
-    
+
     # We can fetch all and check the items are there
     all_items = memory_store.all()
     assert len(all_items) == 2
@@ -63,7 +64,7 @@ def test_write_and_retrieve(memory_store):
 
 def test_decay(memory_store):
     now = time.time()
-    
+
     # Old item
     item1 = MemoryItem(
         id="1",
@@ -76,7 +77,7 @@ def test_decay(memory_store):
         tags=[],
         impact=0.5,
     )
-    
+
     # New item
     item2 = MemoryItem(
         id="2",
@@ -89,18 +90,18 @@ def test_decay(memory_store):
         tags=[],
         impact=0.5,
     )
-    
+
     memory_store.write(item1)
     memory_store.write(item2)
-    
+
     decayed = memory_store.decay(max_idle_seconds=50)
     assert decayed == 1
-    
+
     # Retrieve without dormant should return 1 item
     active_results = memory_store.retrieve("test", k=10, include_dormant=False)
     assert len(active_results) == 1
     assert active_results[0].id == "2"
-    
+
     # Retrieve with dormant should return 2 items
     all_results = memory_store.retrieve("test", k=10, include_dormant=True)
     assert len(all_results) == 2
@@ -108,7 +109,7 @@ def test_decay(memory_store):
 
 def test_touch(memory_store):
     now = time.time()
-    
+
     item = MemoryItem(
         id="1",
         created=now - 100,
@@ -120,15 +121,15 @@ def test_touch(memory_store):
         tags=[],
         impact=0.5,
     )
-    
+
     memory_store.write(item)
-    
+
     # Touch it
     memory_store.touch(["1"])
-    
+
     # Fetch it and check
     all_items = memory_store.all()
     updated_item = all_items[0]
-    
+
     assert updated_item.uses == 2
     assert updated_item.last_used > now - 50

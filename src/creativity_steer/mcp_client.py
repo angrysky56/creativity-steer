@@ -37,7 +37,9 @@ class ToolResult:
 class McpClient:
     """A sync-friendly wrapper around MCP's async Python SDK."""
 
-    def __init__(self, config_path: str | None = None, tools_whitelist: str | None = None):
+    def __init__(
+        self, config_path: str | None = None, tools_whitelist: str | None = None
+    ):
         self.config_path = config_path or os.getenv("CS_MCP_CONFIG", "./mcp.json")
         self.whitelist = (
             set(t.strip() for t in tools_whitelist.split(",") if t.strip())
@@ -86,7 +88,9 @@ class McpClient:
     async def _connect_all(self):
         for name, config in self.servers.items():
             if config.get("transport", "stdio") != "stdio":
-                logger.warning(f"Unsupported transport for server {name}: {config.get('transport')}")
+                logger.warning(
+                    f"Unsupported transport for server {name}: {config.get('transport')}"
+                )
                 continue
 
             command = config.get("command")
@@ -94,21 +98,23 @@ class McpClient:
             env = config.get("env", {})
             full_env = os.environ.copy()
             full_env.update(env)
-            
+
             try:
                 server_params = StdioServerParameters(
                     command=command,
                     args=args,
                     env=full_env,
                 )
-                
+
                 # We need to maintain the context managers for the lifetime of the client
                 stdio_ctx = mcp.client.stdio.stdio_client(server_params)
-                read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_ctx)
-                
+                read_stream, write_stream = await self._exit_stack.enter_async_context(
+                    stdio_ctx
+                )
+
                 session_ctx = ClientSession(read_stream, write_stream)
                 session = await self._exit_stack.enter_async_context(session_ctx)
-                
+
                 await session.initialize()
                 self._active_sessions[name] = session
                 logger.info(f"Connected to MCP server: {name}")
@@ -128,7 +134,7 @@ class McpClient:
                     fqn = f"{server_name}.{tool.name}"
                     if self.whitelist and fqn not in self.whitelist:
                         continue
-                    
+
                     tools.append(
                         ToolSpec(
                             name=tool.name,
@@ -145,22 +151,28 @@ class McpClient:
         """Call a tool synchronously."""
         return self._run_sync(self._call_tool_async(server, name, args))
 
-    async def _call_tool_async(self, server: str, name: str, args: Dict[str, Any]) -> ToolResult:
+    async def _call_tool_async(
+        self, server: str, name: str, args: Dict[str, Any]
+    ) -> ToolResult:
         session = self._active_sessions.get(server)
         if not session:
-            return ToolResult(is_error=True, text=f"Server {server} not connected", content=[])
-            
+            return ToolResult(
+                is_error=True, text=f"Server {server} not connected", content=[]
+            )
+
         fqn = f"{server}.{name}"
         if self.whitelist and fqn not in self.whitelist:
-             return ToolResult(is_error=True, text=f"Tool {fqn} not in whitelist", content=[])
+            return ToolResult(
+                is_error=True, text=f"Tool {fqn} not in whitelist", content=[]
+            )
 
         try:
             result = await session.call_tool(name, arguments=args)
-            
+
             # Basic text extraction from the result content
             text_parts = []
             content_list = []
-            
+
             if hasattr(result, "content"):
                 for item in result.content:
                     if hasattr(item, "text"):
@@ -169,11 +181,11 @@ class McpClient:
                         content_list.append(item.model_dump())
                     elif isinstance(item, dict):
                         content_list.append(item)
-            
+
             return ToolResult(
                 is_error=getattr(result, "isError", False),
                 text="\n".join(text_parts),
-                content=content_list
+                content=content_list,
             )
         except Exception as e:
             return ToolResult(is_error=True, text=str(e), content=[])
@@ -181,11 +193,19 @@ class McpClient:
 
 class MockMcpClient:
     """Mock client for offline testing."""
-    
+
     def __init__(self, *args, **kwargs):
         self._tools = {
-            "echo": lambda args: ToolResult(is_error=False, text=json.dumps(args), content=[{"type": "text", "text": json.dumps(args)}]),
-            "search": lambda args: ToolResult(is_error=False, text=f"Results for {args.get('query')}", content=[{"type": "text", "text": f"Results for {args.get('query')}"}])
+            "echo": lambda args: ToolResult(
+                is_error=False,
+                text=json.dumps(args),
+                content=[{"type": "text", "text": json.dumps(args)}],
+            ),
+            "search": lambda args: ToolResult(
+                is_error=False,
+                text=f"Results for {args.get('query')}",
+                content=[{"type": "text", "text": f"Results for {args.get('query')}"}],
+            ),
         }
 
     def connect(self) -> MockMcpClient:
@@ -196,8 +216,18 @@ class MockMcpClient:
 
     def list_tools(self) -> List[ToolSpec]:
         return [
-            ToolSpec("echo", "mock", "Echo args", {"type": "object", "properties": {"msg": {"type": "string"}}}),
-            ToolSpec("search", "mock", "Mock search", {"type": "object", "properties": {"query": {"type": "string"}}})
+            ToolSpec(
+                "echo",
+                "mock",
+                "Echo args",
+                {"type": "object", "properties": {"msg": {"type": "string"}}},
+            ),
+            ToolSpec(
+                "search",
+                "mock",
+                "Mock search",
+                {"type": "object", "properties": {"query": {"type": "string"}}},
+            ),
         ]
 
     def call_tool(self, server: str, name: str, args: Dict[str, Any]) -> ToolResult:

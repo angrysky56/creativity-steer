@@ -134,7 +134,12 @@ _DEFAULT_POOL: list[tuple[str, float, float, int]] = [
     ("Tie the string around the magnet and lower it to grab the keys.", 3.0, 0.55, 0),
     ("Fasten the magnet to the end of the string and dip it in.", 2.6, 0.55, 0),
     ("Drop the magnet straight into the drain to catch the keys.", 2.2, 0.30, 1),
-    ("Punch a hole in the plastic cup, thread the string, lower the cup.", 0.8, 0.85, 2),
+    (
+        "Punch a hole in the plastic cup, thread the string, lower the cup.",
+        0.8,
+        0.85,
+        2,
+    ),
     ("Use two strings to tilt the cup and scoop the keys out.", 0.4, 0.80, 3),
     ("Swing the magnet like a pendulum to snag the keys sideways.", 0.2, 0.70, 4),
 ]
@@ -173,9 +178,7 @@ class MockBackend:
         weights = [math.exp(x - m) for x in logits]
         total = sum(weights)
         idxs = rng.choices(range(len(self.pool)), weights=weights, k=n)
-        return [
-            GenSample(self.pool[i][0], math.log(weights[i] / total)) for i in idxs
-        ]
+        return [GenSample(self.pool[i][0], math.log(weights[i] / total)) for i in idxs]
 
     def _quality_of(self, prompt: str) -> float:
         """Latent quality of whichever pool idea appears in the prompt."""
