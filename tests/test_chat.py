@@ -35,9 +35,9 @@ def test_chat_turn_assembles_result() -> None:
 
 def test_chat_separate_judge_backend() -> None:
     gen, judge = MockBackend(), MockBackend()
-    res = chat_turn(gen, judge, _ent(gen), [], MSG, ChatConfig(k=3))
+    res = chat_turn(gen, judge, _ent(gen), [], MSG, ChatConfig(k=3, max_rounds=1))
     assert res["response"]
-    assert len(res["scores"]) == 4  # modal + 3 variants
+    assert len(res["scores"]) == 4  # modal + 3 variants (single round)
 
 
 def test_chat_history_is_accepted() -> None:

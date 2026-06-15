@@ -20,6 +20,7 @@ from creativity_steer.backends import (
 )
 from creativity_steer.config import backend_summary, build_backend, load_env
 from creativity_steer.chat import ChatConfig, chat_turn, chat_turn_stream
+from creativity_steer.control import TurnController
 from creativity_steer.entailment import make_entailment
 from creativity_steer.judge import JudgeResult, multi_agent_judge
 from creativity_steer.reference import novelty_vs_reference
@@ -60,6 +61,7 @@ __all__ = [
     "ChatConfig",
     "chat_turn",
     "chat_turn_stream",
+    "TurnController",
     "JudgeResult",
     "multi_agent_judge",
     "novelty_vs_reference",

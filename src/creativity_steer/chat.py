@@ -1,51 +1,51 @@
 """Chat mode: think-and-select for open conversation.
 
-Generalises the Stage 1 pipeline from "propose a next step" to "respond to a
-user message". Each turn:
+Each turn: produce a modal (greedy) reply, brainstorm K diverse replies, score
+every candidate on multiple reference-free axes (novelty, quality, coherence,
+…), and Pareto-select. ``chat_turn_stream`` yields process-trace events for a
+UI; ``chat_turn`` consumes the stream and returns the assembled result.
 
-1. produce the MODAL reply (greedy) -- the reference;
-2. brainstorm K diverse replies in one call;
-3. score novelty as distance from the modal reply, quality with a chat rubric
-   (relevance / helpfulness / coherence);
-4. Pareto-select (novelty, quality) above the floor;
-5. emit the chosen reply.
-
-``chat_turn_stream`` yields process-trace events so a UI can show the model
-"thinking"; ``chat_turn`` consumes the stream and returns the final result.
+Axes live in :mod:`creativity_steer.scoring` (a pluggable registry); selection
+generalises to any number of them. See docs/CONCEPT.md and docs/PLAN.md.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
-from creativity_steer.backends import LLMBackend
+from creativity_steer.backends import GenSample, LLMBackend
+from creativity_steer.control import TurnController
 from creativity_steer.entailment import EntailmentModel
 from creativity_steer.reference import normalize_max, reference_distances
-from creativity_steer.selection import pareto_mask
+from creativity_steer.scoring import (
+    ScoringContext,
+    _history_block,
+    score_extra,
+    select_multi,
+)
 from creativity_steer.variants import parse_numbered_list
-
-CHAT_CRITERIA: tuple[str, ...] = ("relevance", "helpfulness", "coherence")
-_VERDICT_RE = re.compile(r"\[\[\s*(YES|NO)\s*\]\]", re.IGNORECASE)
 
 
 @dataclass
 class ChatConfig:
-    """Knobs for a chat turn."""
+    """Knobs for a chat turn. ``novelty_weight`` dials novelty vs quality (the
+    2-axis default); ``coherence_weight`` adds the basin-depth axis on top."""
 
     k: int = 5
     temperature: float = 0.9
-    criteria: tuple[str, ...] = CHAT_CRITERIA
     novelty_weight: float = 0.5
+    coherence_weight: float = 0.0
     convergent_floor: float = 0.34
     zero_out_modal_restatements: bool = True
+    coherence_paraphrases: int = 2
+    max_rounds: int = 2  # controller may explore extra rounds when collapsed
 
-
-def _history_block(history: list[dict[str, str]]) -> str:
-    if not history:
-        return ""
-    lines = [f"{m['role'].capitalize()}: {m['content']}" for m in history]
-    return "CONVERSATION SO FAR:\n" + "\n".join(lines) + "\n\n"
+    def weights(self) -> dict[str, float]:
+        return {
+            "novelty": self.novelty_weight,
+            "quality": 1.0 - self.novelty_weight,
+            "coherence": self.coherence_weight,
+        }
 
 
 def _modal_prompt(history: list[dict[str, str]], user_msg: str) -> str:
@@ -66,67 +66,6 @@ def _brainstorm_prompt(history: list[dict[str, str]], user_msg: str, k: int) -> 
     )
 
 
-def _judge_prompt(
-    history: list[dict[str, str]],
-    user_msg: str,
-    reply: str,
-    criteria: tuple[str, ...],
-) -> str:
-    qs = {
-        "relevance": "Relevance (does it address what the user said?)",
-        "helpfulness": "Helpfulness (is it useful or substantive?)",
-        "coherence": "Coherence (is it clear and well-formed?)",
-    }
-    lines = "\n".join(f"{c.capitalize()}: {qs.get(c, c)}" for c in criteria)
-    fmt = ", ".join(f"{c.capitalize()}: [[YES/NO]]" for c in criteria)
-    return (
-        "Judge a candidate reply to a user message. RATE THE REPLY on each "
-        f"criterion.\n{_history_block(history)}User: {user_msg}\n\n"
-        f"CANDIDATE REPLY:\n{reply}\n\nCriteria:\n{lines}\n\n"
-        f"After a brief note, end with STRICTLY: {fmt}"
-    )
-
-
-def _judge_one(
-    judge: LLMBackend,
-    history: list[dict[str, str]],
-    user_msg: str,
-    reply: str,
-    criteria: tuple[str, ...],
-) -> float:
-    """Fraction of chat criteria judged YES for one candidate reply."""
-    raw = judge.chat(
-        _judge_prompt(history, user_msg, reply, criteria),
-        temperature=0.0,
-        num_predict=200,
-    )
-    verdicts = _VERDICT_RE.findall(raw)
-    yes = sum(
-        1
-        for i in range(len(criteria))
-        if i < len(verdicts) and verdicts[i].upper() == "YES"
-    )
-    return yes / len(criteria) if criteria else 0.0
-
-
-def _select(
-    novelty: list[float],
-    convergent: list[float],
-    frontier: list[bool],
-    config: ChatConfig,
-) -> int:
-    """Pareto pick on (novelty, quality) above the floor; quality fallback."""
-    eligible = [
-        i
-        for i in range(len(novelty))
-        if frontier[i] and convergent[i] >= config.convergent_floor
-    ]
-    if not eligible:
-        return max(range(len(convergent)), key=lambda i: convergent[i])
-    w = config.novelty_weight
-    return max(eligible, key=lambda i: w * novelty[i] + (1.0 - w) * convergent[i])
-
-
 def chat_turn_stream(
     gen_backend: LLMBackend,
     judge_backend: LLMBackend,
@@ -135,57 +74,92 @@ def chat_turn_stream(
     user_msg: str,
     config: ChatConfig | None = None,
     embed_backend: LLMBackend | None = None,
+    controller: TurnController | None = None,
 ):
     """Yield process-trace events for one chat turn, ending with the response.
 
-    ``embed_backend`` (default: ``gen_backend``) supplies embeddings for the
-    novelty signal, so embeddings can stay local even when generation runs on
-    a remote/trained model.
-
-    Event types: ``modal``, ``variants``, ``scored`` (per candidate),
-    ``selected``, ``response``.
+    The controller may run extra, hotter brainstorm rounds when the set
+    collapses onto the modal basin (self-tuning exploration). Event types:
+    ``modal``, ``variants``, ``controller`` (additive metadata), ``scored``
+    (per candidate, carrying a ``scores`` axis dict plus back-compat
+    ``novelty``/``distance``/``quality``), ``selected``, ``response``.
     """
     config = config or ChatConfig()
+    controller = controller or TurnController()
     embed = embed_backend or gen_backend
+    ent = entailment if config.zero_out_modal_restatements else None
 
     modal = gen_backend.chat(
         _modal_prompt(history, user_msg), temperature=0.0, num_predict=160
     ).strip()
     yield {"type": "modal", "text": modal}
 
-    raw = gen_backend.chat(
-        _brainstorm_prompt(history, user_msg, config.k),
-        temperature=config.temperature,
-        num_predict=500,
-    )
-    variants = parse_numbered_list(raw, config.k)
-    texts = [modal, *variants]
-    modal_flags = [True, *([False] * len(variants))]
+    # Brainstorm rounds; the controller decides whether to explore another,
+    # hotter round when the accumulated set is collapsed.
+    texts = [modal]
+    modal_flags = [True]
+    temp = config.temperature
+    distances: list[float] = [0.0]
+    novelty: list[float] = [0.0]
+    rounds_used = 0
+    for round_idx in range(max(1, config.max_rounds)):
+        rounds_used += 1
+        raw = gen_backend.chat(
+            _brainstorm_prompt(history, user_msg, config.k),
+            temperature=temp,
+            num_predict=500,
+        )
+        new = parse_numbered_list(raw, config.k)
+        texts += new
+        modal_flags += [False] * len(new)
+        distances = reference_distances(embed, modal, texts, "", ent)
+        novelty = normalize_max(distances)
+        if not controller.should_continue(round_idx, novelty, config.max_rounds):
+            break
+        temp = controller.next_temperature(temp)
+
     yield {
         "type": "variants",
         "items": [
             {"text": t, "is_modal": f} for t, f in zip(texts, modal_flags, strict=False)
         ],
     }
+    yield {
+        "type": "controller",
+        "rounds": rounds_used,
+        "diversity": round(controller.diversity(novelty), 3),
+        "final_temperature": round(temp, 3),
+        "weights": config.weights(),
+        "quality_floor": config.convergent_floor,
+    }
 
-    ent = entailment if config.zero_out_modal_restatements else None
-    distances = reference_distances(embed, modal, texts, "", ent)
-    novelty = normalize_max(distances)
+    ctx = ScoringContext(
+        gen=gen_backend,
+        judge=judge_backend,
+        embed=embed,
+        entailment=entailment,
+        history=history,
+        user_msg=user_msg,
+        modal=modal,
+        texts=texts,
+        samples=[GenSample(t) for t in texts],
+        coherence_paraphrases=config.coherence_paraphrases,
+    )
+    scores = {"novelty": novelty, **score_extra(ctx)}
 
-    convergent: list[float] = []
-    for i, t in enumerate(texts):
-        q = _judge_one(judge_backend, history, user_msg, t, config.criteria)
-        convergent.append(q)
+    for i in range(len(texts)):
         yield {
             "type": "scored",
             "index": i,
             "novelty": novelty[i],
             "distance": distances[i],
-            "quality": q,
+            "quality": scores["quality"][i],
+            "scores": {a: scores[a][i] for a in scores},
         }
 
-    frontier = pareto_mask(list(zip(novelty, convergent, strict=False)))
-    chosen = _select(novelty, convergent, frontier, config)
+    chosen, frontier = select_multi(
+        scores, config.weights(), floor_axis="quality", floor=config.convergent_floor
+    )
     yield {"type": "selected", "index": chosen, "frontier": frontier}
     yield {"type": "response", "text": texts[chosen], "index": chosen}
 
@@ -198,6 +172,7 @@ def chat_turn(
     user_msg: str,
     config: ChatConfig | None = None,
     embed_backend: LLMBackend | None = None,
+    controller: TurnController | None = None,
 ) -> dict:
     """Run a chat turn and return the assembled result (consumes the stream)."""
     events = list(
@@ -209,6 +184,7 @@ def chat_turn(
             user_msg,
             config,
             embed_backend,
+            controller,
         )
     )
     by_type: dict[str, list] = {}

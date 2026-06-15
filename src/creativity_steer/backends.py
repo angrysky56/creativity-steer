@@ -194,6 +194,19 @@ class MockBackend:
             return "\n".join(
                 f"{i + 1}) {text}" for i, (text, _, _, _) in enumerate(self.pool)
             )
+        if "Restate the following" in prompt:  # coherence paraphrase
+            body = prompt.split(":\n", 1)[-1].rsplit("\nRestatement:", 1)[0]
+            return body.strip() or "mock restatement"
+        if "skeptical critic" in prompt:  # chat-mode comparative judge
+            scores: list[float] = []
+            for line in prompt.splitlines():
+                s = line.strip()
+                if s and s[0].isdigit() and ". " in s[:6]:
+                    scores.append(
+                        next((q for t, q in self._quality.items() if t in s), 0.5)
+                    )
+            scores = scores or [0.5]
+            return json.dumps([{"i": i + 1, "score": q} for i, q in enumerate(scores)])
         if "RATE THE REPLY" in prompt:  # chat-mode rubric judge
             return (
                 f"Relevance: [[{verdict}]], Helpfulness: [[{verdict}]], "

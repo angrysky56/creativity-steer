@@ -135,6 +135,8 @@ src/creativity_steer/
   entailment.py  bidirectional entailment: LLM / embedding / DeBERTa-NLI
   divergent.py   clustering, semantic entropy, novelty
   reference.py   novelty-vs-modal distance
+  scoring.py     selection axes (scorers) + N-axis Pareto selection
+  control.py     metacognitive turn controller (self-tuning exploration)
   convergent.py  per-step rubric judge
   judge.py       multi-agent retrieval judge
   criteria.py    paper criterion definitions

@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     history: list[dict[str, str]] = []
     k: int = 5
     novelty_weight: float = 0.5
+    coherence_weight: float = 0.0
     convergent_floor: float = 0.34
     temperature: float = 0.9
 
@@ -111,7 +112,8 @@ def chat(req: ChatRequest) -> StreamingResponse:
     state = get_state()
     cfg = ChatConfig(
         k=req.k, temperature=req.temperature,
-        novelty_weight=req.novelty_weight, convergent_floor=req.convergent_floor,
+        novelty_weight=req.novelty_weight, coherence_weight=req.coherence_weight,
+        convergent_floor=req.convergent_floor,
     )
 
     def event_gen():

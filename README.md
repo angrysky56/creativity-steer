@@ -50,6 +50,22 @@ install). By default it runs Gemma-4 E4B (an Unsloth GGUF, served locally) for
 both replies and judging. To use a model you've fine-tuned, point `CS_GEN_HF`
 at it — nothing else changes.
 
+## Credits
+
+This project builds directly on the measurement framework from:
+
+> **Automated Creativity Evaluation of Language Models Across Open-Ended Tasks.**
+> Tan Min Sen, Zachary Choy Kit Chun, Syed Ali Redha Alsagoff, Nadya Yuki
+> Wangsajaya, Banerjee Mohor, Swaagat Bikash Saikia, Alvin Chan. ACL 2026.
+> Code: <https://github.com/tanminsen/creativity-eval>
+
+Their paper introduced the two reference-free signals this tool relies on —
+**semantic entropy** for divergent creativity and a **retrieval-based
+multi-agent judge** for convergent creativity — and showed the two are
+empirically separable. `creativity-steer` takes that *evaluation* apparatus and
+repurposes it as a *generation-time* control signal: it selects for creativity
+rather than only measuring it. All credit for the underlying metrics is theirs.
+
 ---
 
 Developers: see [docs/DEVELOPERS.md](docs/DEVELOPERS.md) for architecture,
