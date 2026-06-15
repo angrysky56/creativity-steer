@@ -33,10 +33,14 @@ To stop everything: press **Ctrl+C** in that terminal, or run `./stop.sh`.
 
 ## Using it
 
+![image-1](Screenshot_2026-06-15_00-06-03.png)
+
+![image-2](Screenshot_2026-06-15_00-18-03.png)
+
 Type a message and watch the right-hand panel:
 
 - the **modal answer** — the ordinary reply the model would normally give;
-- the **brainstormed options**, each with a *novelty* and a *quality* bar;
+- the **brainstormed options**, each with a _novelty_ and a _quality_ bar;
 - the **chosen** reply (highlighted) — the most novel option that's still good.
 
 The sliders tune the behaviour live: how many options to brainstorm, how much to
@@ -62,8 +66,8 @@ This project builds directly on the measurement framework from:
 Their paper introduced the two reference-free signals this tool relies on —
 **semantic entropy** for divergent creativity and a **retrieval-based
 multi-agent judge** for convergent creativity — and showed the two are
-empirically separable. `creativity-steer` takes that *evaluation* apparatus and
-repurposes it as a *generation-time* control signal: it selects for creativity
+empirically separable. `creativity-steer` takes that _evaluation_ apparatus and
+repurposes it as a _generation-time_ control signal: it selects for creativity
 rather than only measuring it. All credit for the underlying metrics is theirs.
 
 ---
