@@ -33,9 +33,7 @@ To stop everything: press **Ctrl+C** in that terminal, or run `./stop.sh`.
 
 ## Using it
 
-![image-1](Screenshot_2026-06-15_00-06-03.png)
-
-![image-2](Screenshot_2026-06-15_00-18-03.png)
+![UI screenshot](Screenshot_2026-06-15_11-21-11.png)
 
 Type a message and watch the right-hand panel:
 
@@ -74,3 +72,51 @@ rather than only measuring it. All credit for the underlying metrics is theirs.
 
 Developers: see [docs/DEVELOPERS.md](docs/DEVELOPERS.md) for architecture,
 backends, testing, and the experiment scripts.
+
+# Example outputs with Gemma 12b (Unsloth)
+
+---
+
+The motivation for interstellar travel is fundamentally dictated by the civilization’s "metabolic" relationship with
+energy and time. If travel is difficult and expensive, the civilization is likely driven by the primal, scarcity-based
+imperatives of biological preservation. In this context, other worlds serve as desperate lifeboats or resource
+reservoirs—a "Plan B" for a species fleeing ecological collapse or seeking to hedge against localized catastrophes through
+existential insurance. Here, the voyage is a frantic necessity of survival, a frantic expansion to secure the physical
+substrates of life.
+Conversely, if travel is effortless, the civilization has likely transcended the need for survival, moving into a
+post-scarcity state where they may possess near-infinite power and immortal consciousness. For such a species, the
+motivation shifts from utility to "evolutionary aesthetics." When a civilization reaches a perfected, static paradise,
+they face the threat of psychological entropy—the crushing boredom of eternity. In this scenario, interstellar travel
+becomes a pursuit of novelty; they are seeking unique genetic architectures and diverse alien biologies to serve as an
+antidote to their own stagnation.
+Ultimately, the destination is less about the physical location and more about the specific existential pressure driving
+the journey. Whether it is a desperate flight from the fear of death or a sublime, aesthetic quest to escape the boredom
+of immortality, interstellar travel is the mechanism by which a civilization attempts to outrun its own limitations—be
+they the limitations of a dying planet or the limitations of a perfected mind.
+
+---
+
+We are the bridge built of bone and breath,
+Suspended between the predator’s pulse
+And the angel’s fevered, soaring dream.
+Bound by the gravity of the animal cell,
+We carry a restless, spiritual ache—
+A hunger not for bread, but for the light
+That flickers just beyond the reach of hand.
+We are the universe’s recursive spark,
+The cosmos turning its eye inward
+To witness the fire that forged its dust.
+A mirror held up to the silent void,
+We attempt to translate the vast mechanics
+Of cold, rotating stars into the warmth
+Of a story, a song, a name for the dark.
+Yet, in this audacity of awareness,
+We craft our own magnificent cages.
+We architect the infinite to house our smallness,
+Building cathedrals of stone and belief
+To shield our trembling from the truth of the air.
+We invent the divine to give a face to the fear,
+Then cower in the hallways of our own design,
+Architects of the holy, refugees from the self,
+Seeking a sanctuary where our fleeting spark
+Might feel, for one holy moment, like home.
