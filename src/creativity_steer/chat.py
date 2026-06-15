@@ -109,6 +109,7 @@ def chat_turn_stream(
     config: ChatConfig | None = None,
     embed_backend: LLMBackend | None = None,
     controller: TurnController | None = None,
+    grounding: GroundingProvider | None = None,
 ):
     """Yield process-trace events for one chat turn, ending with the response.
 
@@ -123,8 +124,22 @@ def chat_turn_stream(
     embed = embed_backend or gen_backend
     ent = entailment if config.zero_out_modal_restatements else None
 
+    ctx_block = ""
+    if grounding:
+        grounding_ctx = grounding.gather(user_msg, history)
+        ctx_block = grounding_ctx.block()
+        yield {
+            "type": "grounding",
+            "memory": len(grounding_ctx.memory),
+            "tools": len(grounding_ctx.tool_results),
+            "snippets": [m.content for m in grounding_ctx.memory] + [t.get("text", str(t)) for t in grounding_ctx.tool_results]
+        }
+        
+    modal_prompt_text = ctx_block + _modal_prompt(history, user_msg)
+    brainstorm_prompt_text = ctx_block + _brainstorm_prompt(history, user_msg, config.k)
+
     modal = gen_backend.chat(
-        _modal_prompt(history, user_msg), temperature=0.0, num_predict=160
+        modal_prompt_text, temperature=0.0, num_predict=160
     ).strip()
     yield {"type": "modal", "text": modal}
 
@@ -242,6 +257,7 @@ def chat_turn(
     config: ChatConfig | None = None,
     embed_backend: LLMBackend | None = None,
     controller: TurnController | None = None,
+    grounding: GroundingProvider | None = None,
 ) -> dict:
     """Run a chat turn and return the assembled result (consumes the stream)."""
     events = list(
@@ -254,6 +270,7 @@ def chat_turn(
             config,
             embed_backend,
             controller,
+            grounding,
         )
     )
     by_type: dict[str, list] = {}

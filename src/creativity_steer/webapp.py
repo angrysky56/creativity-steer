@@ -27,6 +27,10 @@ from creativity_steer.backends import MockBackend
 from creativity_steer.chat import ChatConfig, chat_turn_stream
 from creativity_steer.config import backend_summary, build_backend, load_env
 from creativity_steer.entailment import EmbeddingEntailment, make_entailment
+from creativity_steer.mcp_client import McpClient
+from creativity_steer.memory import build_memory
+from creativity_steer.grounding import DefaultGrounding
+from creativity_steer.consolidation import consolidate
 
 LOG_PATH = Path("results/conversations.jsonl")
 _state: dict | None = None
@@ -65,8 +69,20 @@ def _build_state() -> dict:
         if (is_mock and ent_kind == "embedding")
         else make_entailment(ent_kind, embed)
     )
-    return {"gen": gen, "judge": judge, "embed": embed, "ent": ent,
-            "backend": backend_summary()}
+
+    memory = build_memory(embed)
+    grounding = None
+    if os.getenv("CS_GROUNDING", "off").lower() == "on" and memory is not None:
+        mcp_client = McpClient().connect()
+        whitelist = os.getenv("CS_MCP_TOOLS")
+        tools = [t.strip() for t in whitelist.split(",")] if whitelist else []
+        grounding = DefaultGrounding(memory, mcp_client, tools)
+
+    return {
+        "gen": gen, "judge": judge, "embed": embed, "ent": ent,
+        "memory": memory, "grounding": grounding,
+        "backend": backend_summary()
+    }
 
 
 def get_state() -> dict:
@@ -77,7 +93,7 @@ def get_state() -> dict:
     return _state
 
 
-def _log_turn(req: ChatRequest, events: list[dict]) -> None:
+def _log_turn(req: ChatRequest, events: list[dict], state: dict) -> None:
     """Append one completed turn to the JSONL training log."""
     by_type: dict[str, list] = {}
     for e in events:
@@ -94,6 +110,16 @@ def _log_turn(req: ChatRequest, events: list[dict]) -> None:
         "selected": by_type["selected"][0]["index"],
         "response": by_type["response"][0]["text"],
     }
+    
+    # Extract controller variables if available for impact_score
+    if "controller" in by_type and by_type["controller"]:
+        ctrl = by_type["controller"][0]
+        record["rounds"] = ctrl.get("rounds", 1)
+        record["initial_diversity"] = ctrl.get("diversity", 0.0)
+        
+    # See if there's any is_correction logic we can infer, or let the user pass it
+    # Currently just passing defaults
+        
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
@@ -111,6 +137,28 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "backend": get_state()["backend"]}
+
+class ConsolidateRequest(BaseModel):
+    threshold: float = 0.4
+
+@app.post("/api/consolidate")
+def api_consolidate(req: ConsolidateRequest) -> dict:
+    state = get_state()
+    memory = state.get("memory")
+    if not memory:
+        return {"error": "Memory is disabled or unconfigured."}
+    
+    if not LOG_PATH.exists():
+        return {"consolidated": 0, "message": "No logs to consolidate"}
+        
+    turns = []
+    with LOG_PATH.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                turns.append(json.loads(line))
+                
+    new_memories = consolidate(turns, memory, state["gen"], threshold=req.threshold)
+    return {"consolidated": len(new_memories)}
 
 
 @app.post("/api/chat")
@@ -131,10 +179,11 @@ def chat(req: ChatRequest) -> StreamingResponse:
             for ev in chat_turn_stream(
                 state["gen"], state["judge"], state["ent"],
                 req.history, req.message, cfg, state["embed"],
+                grounding=state.get("grounding")
             ):
                 collected.append(ev)
                 yield f"data: {json.dumps(ev)}\n\n"
-            _log_turn(req, collected)
+            _log_turn(req, collected, state)
         except Exception as exc:  # surface to the UI instead of hanging
             msg = f"{type(exc).__name__}: {exc}"
             yield f"data: {json.dumps({'type': 'error', 'message': msg})}\n\n"

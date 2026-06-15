@@ -245,6 +245,8 @@ class MockBackend:
             )
         if "[[POINT]]" in prompt:
             return "[[POINT]] mock analysis A. [[POINT]] mock analysis B."
+        if "Extract a concise, factual lesson" in prompt:
+            return "Apples fall down."
         return "mock response"
 
     def embed(self, texts: list[str]) -> list[list[float]]:
