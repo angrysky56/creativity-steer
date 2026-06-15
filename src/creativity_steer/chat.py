@@ -20,6 +20,7 @@ from creativity_steer.reference import normalize_max, reference_distances
 from creativity_steer.scoring import (
     ScoringContext,
     _history_block,
+    funnel_representatives,
     score_extra,
     select_multi,
 )
@@ -39,6 +40,11 @@ class ChatConfig:
     zero_out_modal_restatements: bool = True
     coherence_paraphrases: int = 2
     max_rounds: int = 2  # controller may explore extra rounds when collapsed
+    # breadth -> funnel -> branch -> synthesize (all off by default)
+    breadth_k: int = 0   # 0 = single batch of k; else generate ~this many candidates
+    prime_n: int = 0     # 0 = no funnel; else keep this many diverse primes
+    branch: bool = False  # deepen each prime candidate before scoring
+    synthesize: bool = False  # merge the frontier set into one final reply
 
     def weights(self) -> dict[str, float]:
         return {
@@ -64,6 +70,28 @@ def _brainstorm_prompt(history: list[dict[str, str]], user_msg: str, k: int) -> 
         "Return them as a numbered list and nothing else:\n"
         "1) <reply one>\n2) <reply two>\n..."
     )
+
+
+def _branch(gen: LLMBackend, history, user_msg: str, seed: str) -> str:
+    """Develop a short candidate into a richer, deeper reply (depth creativity)."""
+    prompt = (
+        f"{_history_block(history)}User: {user_msg}\n\n"
+        "Develop this idea into a richer, deeper reply (2-4 sentences) that keeps "
+        f"its distinct angle and adds real substance:\n{seed}\nDeeper reply:"
+    )
+    return gen.chat(prompt, temperature=0.7, num_predict=240).strip()
+
+
+def _synthesize(gen: LLMBackend, history, user_msg: str, sources: list[str]) -> str:
+    """Merge the strongest, most distinct angles into one final reply."""
+    listing = "\n".join(f"- {s}" for s in sources)
+    prompt = (
+        f"{_history_block(history)}User: {user_msg}\n\n"
+        f"Here are several distinct angles on a reply:\n{listing}\n\n"
+        "Write ONE excellent reply that weaves together the strongest, most "
+        "distinct insights from these into a coherent, original answer. Reply only."
+    )
+    return gen.chat(prompt, temperature=0.6, num_predict=320).strip()
 
 
 def chat_turn_stream(
@@ -94,30 +122,49 @@ def chat_turn_stream(
     ).strip()
     yield {"type": "modal", "text": modal}
 
-    # Brainstorm rounds; the controller decides whether to explore another,
-    # hotter round when the accumulated set is collapsed.
-    texts = [modal]
-    modal_flags = [True]
+    # ---- generate variants (breadth mode, or controller-adaptive rounds) ----
+    variants: list[str] = []
     temp = config.temperature
-    distances: list[float] = [0.0]
-    novelty: list[float] = [0.0]
     rounds_used = 0
-    for round_idx in range(max(1, config.max_rounds)):
-        rounds_used += 1
-        raw = gen_backend.chat(
-            _brainstorm_prompt(history, user_msg, config.k),
-            temperature=temp,
-            num_predict=500,
-        )
-        new = parse_numbered_list(raw, config.k)
-        texts += new
-        modal_flags += [False] * len(new)
-        distances = reference_distances(embed, modal, texts, "", ent)
-        novelty = normalize_max(distances)
-        if not controller.should_continue(round_idx, novelty, config.max_rounds):
-            break
-        temp = controller.next_temperature(temp)
+    diversity = 0.0
+    if config.breadth_k and config.breadth_k > config.k:
+        while len(variants) < config.breadth_k:
+            rounds_used += 1
+            raw = gen_backend.chat(
+                _brainstorm_prompt(history, user_msg, config.k),
+                temperature=temp, num_predict=500,
+            )
+            variants += parse_numbered_list(raw, config.k)
+            temp = min(1.3, round(temp + 0.1, 3))
+        variants = variants[: config.breadth_k]
+    else:
+        for round_idx in range(max(1, config.max_rounds)):
+            rounds_used += 1
+            raw = gen_backend.chat(
+                _brainstorm_prompt(history, user_msg, config.k),
+                temperature=temp, num_predict=500,
+            )
+            variants += parse_numbered_list(raw, config.k)
+            nov = normalize_max(
+                reference_distances(embed, modal, [modal, *variants], "", ent)
+            )
+            diversity = controller.diversity(nov)
+            if not controller.should_continue(round_idx, nov, config.max_rounds):
+                break
+            temp = controller.next_temperature(temp)
+    breadth_n = len(variants)
 
+    # ---- funnel to a diverse prime set (keeps expensive scoring bounded) ----
+    if config.prime_n and len(variants) > config.prime_n:
+        keep = funnel_representatives(embed, modal, variants, config.prime_n)
+        variants = [variants[i] for i in keep]
+
+    # ---- branch primes into deeper replies ----
+    if config.branch:
+        variants = [_branch(gen_backend, history, user_msg, v) for v in variants]
+
+    texts = [modal, *variants]
+    modal_flags = [True, *([False] * len(variants))]
     yield {
         "type": "variants",
         "items": [
@@ -127,11 +174,17 @@ def chat_turn_stream(
     yield {
         "type": "controller",
         "rounds": rounds_used,
-        "diversity": round(controller.diversity(novelty), 3),
+        "diversity": round(diversity, 3),
         "final_temperature": round(temp, 3),
+        "breadth": breadth_n,
+        "primes": len(variants),
+        "branched": config.branch,
         "weights": config.weights(),
         "quality_floor": config.convergent_floor,
     }
+
+    distances = reference_distances(embed, modal, texts, "", ent)
+    novelty = normalize_max(distances)
 
     ctx = ScoringContext(
         gen=gen_backend,
@@ -161,7 +214,14 @@ def chat_turn_stream(
         scores, config.weights(), floor_axis="quality", floor=config.convergent_floor
     )
     yield {"type": "selected", "index": chosen, "frontier": frontier}
-    yield {"type": "response", "text": texts[chosen], "index": chosen}
+
+    if config.synthesize:
+        prime = [texts[i] for i in range(len(texts)) if frontier[i]] or [texts[chosen]]
+        final = _synthesize(gen_backend, history, user_msg, prime)
+        yield {"type": "synthesis", "sources": len(prime)}
+        yield {"type": "response", "text": final, "index": chosen, "synthesized": True}
+    else:
+        yield {"type": "response", "text": texts[chosen], "index": chosen}
 
 
 def chat_turn(

@@ -233,3 +233,28 @@ EXTRA_SCORERS: list[Scorer] = [QualityScorer(), CoherenceScorer()]
 def score_extra(ctx: ScoringContext, scorers: list[Scorer] | None = None) -> dict[str, list[float]]:
     """Run each scorer and return {axis_name: per-candidate scores}."""
     return {s.name: s.score(ctx) for s in (scorers if scorers is not None else EXTRA_SCORERS)}
+
+
+def funnel_representatives(
+    embed: LLMBackend, modal: str, variants: list[str], prime_n: int
+) -> list[int]:
+    """Pick ``prime_n`` maximally-spread variants (farthest-first / k-center).
+
+    Cheap embedding-only diverse subset selection — the funnel that makes large
+    breadth tractable, and the submodular spanning selector in one. Returns
+    indices into ``variants``.
+    """
+    if prime_n <= 0 or len(variants) <= prime_n:
+        return list(range(len(variants)))
+    vecs = [np.asarray(v, dtype=float) for v in embed.embed([modal, *variants])]
+    mvec, cand = vecs[0], vecs[1:]
+    # seed with the variant farthest from the modal
+    selected = [max(range(len(cand)), key=lambda i: 1.0 - _cosine(mvec, cand[i]))]
+    while len(selected) < prime_n:
+        rest = [i for i in range(len(cand)) if i not in selected]
+        nxt = max(
+            rest,
+            key=lambda i: min(1.0 - _cosine(cand[i], cand[j]) for j in selected),
+        )
+        selected.append(nxt)
+    return sorted(selected)

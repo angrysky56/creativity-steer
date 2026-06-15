@@ -26,7 +26,7 @@ export function ParetoPlot({
   const points = Object.entries(trace.scores).map(([idxStr, score]) => {
     const idx = Number(idxStr);
     const item = trace.variants[idx];
-    const isModal = item?.is_modal ?? (idx === 0);
+    const isModal = item?.is_modal ?? idx === 0;
     const onFrontier = trace.frontier[idx] ?? false;
     const isChosen = trace.selected === idx;
     return {
@@ -49,12 +49,16 @@ export function ParetoPlot({
   let frontierPathD = "";
   if (frontierPoints.length >= 2) {
     frontierPathD = frontierPoints
-      .map((p, i) => `${i === 0 ? "M" : "L"} ${getX(p.novelty)} ${getY(p.quality)}`)
+      .map(
+        (p, i) =>
+          `${i === 0 ? "M" : "L"} ${getX(p.novelty)} ${getY(p.quality)}`,
+      )
       .join(" ");
   }
 
   // Find active hovered point for tooltip
-  const hoveredPoint = hoveredIndex !== null ? points.find((p) => p.index === hoveredIndex) : null;
+  const hoveredPoint =
+    hoveredIndex !== null ? points.find((p) => p.index === hoveredIndex) : null;
 
   return (
     <div className="pareto-plot-container">
@@ -194,13 +198,7 @@ export function ParetoPlot({
               )}
               {/* Glow for hovered dot */}
               {isHovered && (
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={r + 4}
-                  fill={fill}
-                  opacity={0.25}
-                />
+                <circle cx={cx} cy={cy} r={r + 4} fill={fill} opacity={0.25} />
               )}
               {/* Main Dot */}
               <circle
@@ -227,15 +225,17 @@ export function ParetoPlot({
             {(() => {
               const cx = getX(hoveredPoint.novelty);
               const cy = getY(hoveredPoint.quality);
-              
+
               const scoreObj = trace.scores[hoveredPoint.index];
               const coh = scoreObj?.scores?.coherence;
               const hasCoh = coh !== undefined;
 
               const tWidth = 140;
               const tHeight = hasCoh ? 78 : 62;
-              const xPos = cx > width - tWidth - 20 ? cx - tWidth - 10 : cx + 10;
-              const yPos = cy > height - tHeight - 30 ? cy - tHeight - 10 : cy + 10;
+              const xPos =
+                cx > width - tWidth - 20 ? cx - tWidth - 10 : cx + 10;
+              const yPos =
+                cy > height - tHeight - 30 ? cy - tHeight - 10 : cy + 10;
 
               return (
                 <g className="plot-tooltip">
@@ -259,10 +259,10 @@ export function ParetoPlot({
                     {hoveredPoint.isChosen
                       ? "✨ Chosen Reply"
                       : hoveredPoint.isModal
-                      ? "🤖 Modal (Greedy)"
-                      : hoveredPoint.onFrontier
-                      ? "⚡ Frontier Candidate"
-                      : `Variant #${hoveredPoint.index}`}
+                        ? "🤖 Modal (Greedy)"
+                        : hoveredPoint.onFrontier
+                          ? "⚡ Frontier Candidate"
+                          : `Variant #${hoveredPoint.index}`}
                   </text>
                   <text x={xPos + 8} y={yPos + 34} className="tooltip-stat">
                     Novelty:{" "}

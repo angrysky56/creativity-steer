@@ -4,6 +4,21 @@ Agent-executable plan for the ideas in [CONCEPT.md](CONCEPT.md). Read CONCEPT.md
 first for the *why*; this is the *how*, sequenced so each phase ships
 independently and is visible in the existing trace UI.
 
+## Status (implemented)
+
+- **Phase 0** scorer registry + N-axis selection — done (`scoring.py`).
+- **Phase 1** coherence axis (basin depth) — done; surprise scorer present for
+  logprob-bearing paths.
+- **Phase 4** metacognitive controller (explore-when-collapsed) — done
+  (`control.py`).
+- **Breadth → funnel → branch → synthesize** — done (`chat.py` stages +
+  `funnel_representatives`). `ChatConfig.breadth_k` (generate many),
+  `prime_n` (funnel to a diverse set, keeps scoring bounded — the path to ~200),
+  `branch` (deepen primes), `synthesize` (merge the frontier). All default off.
+
+Remaining: **Phase 2** counterfactual-openness axis, learned controller, and the
+surprise axis wired into a logprob-bearing generation path. Details below.
+
 ## Ground rules (read before touching code)
 
 - **Reference-free only.** Every axis must be computable from the candidates +

@@ -194,6 +194,12 @@ class MockBackend:
             return "\n".join(
                 f"{i + 1}) {text}" for i, (text, _, _, _) in enumerate(self.pool)
             )
+        if "Develop this idea" in prompt:  # branch / deepen
+            seed = prompt.rsplit("\nDeeper reply:", 1)[0].rsplit(":\n", 1)[-1]
+            return seed.strip() or "mock deeper reply"
+        if "weaves together" in prompt:  # synthesis
+            found = next((t for t in self._quality if t in prompt), None)
+            return found or "mock synthesis"
         if "Restate the following" in prompt:  # coherence paraphrase
             body = prompt.split(":\n", 1)[-1].rsplit("\nRestatement:", 1)[0]
             return body.strip() or "mock restatement"
