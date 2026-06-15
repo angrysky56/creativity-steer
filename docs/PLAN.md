@@ -16,8 +16,14 @@ independently and is visible in the existing trace UI.
   `prime_n` (funnel to a diverse set, keeps scoring bounded — the path to ~200),
   `branch` (deepen primes), `synthesize` (merge the frontier). All default off.
 
-Remaining: **Phase 2** counterfactual-openness axis, learned controller, and the
-surprise axis wired into a logprob-bearing generation path. Details below.
+- **Phase 2** counterfactual-openness axis — done (`OpennessScorer`; branching
+  factor of conditioned continuations). `ChatConfig.openness_weight` /
+  `openness_branches`. Verified orthogonal to the other three axes.
+
+Selection is now 4-axis: novelty, quality, coherence, openness — all
+reference-free. Remaining: a **learned controller** (vs today's transparent
+heuristic) and the **surprise** axis wired into a logprob-bearing generation
+path. Details below.
 
 ## Ground rules (read before touching code)
 

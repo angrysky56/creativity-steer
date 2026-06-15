@@ -39,8 +39,10 @@ class ChatRequest(BaseModel):
     k: int = 5
     novelty_weight: float = 0.35
     coherence_weight: float = 0.2
+    openness_weight: float = 0.0
     convergent_floor: float = 0.4
     temperature: float = 0.7
+    openness_branches: int = 0
     breadth_k: int = 10
     prime_n: int = 4
     branch: bool = False
@@ -117,6 +119,7 @@ def chat(req: ChatRequest) -> StreamingResponse:
     cfg = ChatConfig(
         k=req.k, temperature=req.temperature,
         novelty_weight=req.novelty_weight, coherence_weight=req.coherence_weight,
+        openness_weight=req.openness_weight, openness_branches=req.openness_branches,
         convergent_floor=req.convergent_floor,
         breadth_k=req.breadth_k, prime_n=req.prime_n,
         branch=req.branch, synthesize=req.synthesize,

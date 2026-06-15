@@ -13,8 +13,10 @@ const PROFILES = {
       k: 3,
       novelty_weight: 0.15,
       coherence_weight: 0.3,
+      openness_weight: 0.0,
       convergent_floor: 0.55,
       temperature: 0.4,
+      openness_branches: 0,
       breadth_k: 0,
       prime_n: 0,
       branch: false,
@@ -28,8 +30,10 @@ const PROFILES = {
       k: 5,
       novelty_weight: 0.35,
       coherence_weight: 0.2,
+      openness_weight: 0.0,
       convergent_floor: 0.4,
       temperature: 0.7,
+      openness_branches: 0,
       breadth_k: 10,
       prime_n: 4,
       branch: false,
@@ -43,8 +47,10 @@ const PROFILES = {
       k: 5,
       novelty_weight: 0.5,
       coherence_weight: 0.0,
+      openness_weight: 0.0,
       convergent_floor: 0.34,
       temperature: 0.9,
+      openness_branches: 0,
       breadth_k: 0,
       prime_n: 0,
       branch: false,
@@ -53,13 +59,15 @@ const PROFILES = {
   },
   high: {
     name: "High (Wild Breadth & Deep Synthesis)",
-    desc: "Generates wide candidate pools, deepens prime candidates, and merges them.",
+    desc: "Wide candidate pool funneled, analyzed for counterfactual openness, deepened, and merged.",
     config: {
       k: 8,
-      novelty_weight: 0.65,
+      novelty_weight: 0.5,
       coherence_weight: 0.15,
+      openness_weight: 0.25,
       convergent_floor: 0.3,
       temperature: 1.2,
+      openness_branches: 3,
       breadth_k: 15,
       prime_n: 5,
       branch: true,
@@ -75,12 +83,14 @@ const getActiveProfileKey = (currentConfig: Config): string => {
       currentConfig.k === pc.k &&
       Math.abs(currentConfig.novelty_weight - pc.novelty_weight) < 0.01 &&
       Math.abs(currentConfig.coherence_weight - pc.coherence_weight) < 0.01 &&
+      Math.abs(currentConfig.openness_weight - pc.openness_weight) < 0.01 &&
       Math.abs(currentConfig.convergent_floor - pc.convergent_floor) < 0.01 &&
       Math.abs(currentConfig.temperature - pc.temperature) < 0.01 &&
       currentConfig.breadth_k === pc.breadth_k &&
       currentConfig.prime_n === pc.prime_n &&
       currentConfig.branch === pc.branch &&
-      currentConfig.synthesize === pc.synthesize;
+      currentConfig.synthesize === pc.synthesize &&
+      currentConfig.openness_branches === pc.openness_branches;
     if (match) return key;
   }
   return "custom";
@@ -483,6 +493,42 @@ function Controls({ config, setConfig, disabled }: CtlProps) {
             disabled={disabled}
           />
           <div className="control-desc">Preference for stable idea attractor basin depth.</div>
+        </div>
+
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="openness-weight">Openness Weight</label>
+            <span className="control-val">{config.openness_weight.toFixed(2)}</span>
+          </div>
+          <input
+            id="openness-weight"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={config.openness_weight}
+            onChange={setNum("openness_weight")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Preference for counterfactual branching openness score.</div>
+        </div>
+
+        <div className="control-item">
+          <div className="control-header">
+            <label htmlFor="openness-branches">Openness Branches</label>
+            <span className="control-val">{config.openness_branches === 0 ? "Off" : config.openness_branches}</span>
+          </div>
+          <input
+            id="openness-branches"
+            type="range"
+            min={0}
+            max={10}
+            step={1}
+            value={config.openness_branches}
+            onChange={setNum("openness_branches")}
+            disabled={disabled}
+          />
+          <div className="control-desc">Number of continuation branches to probe (0 to disable).</div>
         </div>
 
         <div className="control-item">

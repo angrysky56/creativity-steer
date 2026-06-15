@@ -50,6 +50,8 @@ export interface Config {
   prime_n: number;
   branch: boolean;
   synthesize: boolean;
+  openness_weight: number;
+  openness_branches: number;
 }
 
 // Live trace assembled for the current turn.

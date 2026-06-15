@@ -18,6 +18,9 @@ from creativity_steer.control import TurnController
 from creativity_steer.entailment import EntailmentModel
 from creativity_steer.reference import normalize_max, reference_distances
 from creativity_steer.scoring import (
+    CoherenceScorer,
+    OpennessScorer,
+    QualityScorer,
     ScoringContext,
     _history_block,
     funnel_representatives,
@@ -36,9 +39,11 @@ class ChatConfig:
     temperature: float = 0.9
     novelty_weight: float = 0.5
     coherence_weight: float = 0.0
+    openness_weight: float = 0.0
     convergent_floor: float = 0.34
     zero_out_modal_restatements: bool = True
     coherence_paraphrases: int = 2
+    openness_branches: int = 0   # 0 = skip the (expensive) openness axis
     max_rounds: int = 2  # controller may explore extra rounds when collapsed
     # breadth -> funnel -> branch -> synthesize (all off by default)
     breadth_k: int = 0   # 0 = single batch of k; else generate ~this many candidates
@@ -51,6 +56,7 @@ class ChatConfig:
             "novelty": self.novelty_weight,
             "quality": 1.0 - self.novelty_weight,
             "coherence": self.coherence_weight,
+            "openness": self.openness_weight,
         }
 
 
@@ -198,7 +204,10 @@ def chat_turn_stream(
         samples=[GenSample(t) for t in texts],
         coherence_paraphrases=config.coherence_paraphrases,
     )
-    scores = {"novelty": novelty, **score_extra(ctx)}
+    scorers = [QualityScorer(), CoherenceScorer()]
+    if config.openness_branches >= 2:
+        scorers.append(OpennessScorer(config.openness_branches))
+    scores = {"novelty": novelty, **score_extra(ctx, scorers)}
 
     for i in range(len(texts)):
         yield {

@@ -228,10 +228,14 @@ export function ParetoPlot({
 
               const scoreObj = trace.scores[hoveredPoint.index];
               const coh = scoreObj?.scores?.coherence;
+              const opn = scoreObj?.scores?.openness;
               const hasCoh = coh !== undefined;
+              const hasOpn = opn !== undefined;
 
               const tWidth = 140;
-              const tHeight = hasCoh ? 78 : 62;
+              let tHeight = 62;
+              if (hasCoh) tHeight += 16;
+              if (hasOpn) tHeight += 16;
               const xPos =
                 cx > width - tWidth - 20 ? cx - tWidth - 10 : cx + 10;
               const yPos =
@@ -281,6 +285,14 @@ export function ParetoPlot({
                       Coherence:{" "}
                       <tspan fontWeight="500" fill="var(--coh)">
                         {coh.toFixed(2)}
+                      </tspan>
+                    </text>
+                  )}
+                  {hasOpn && (
+                    <text x={xPos + 8} y={yPos + (hasCoh ? 82 : 66)} className="tooltip-stat">
+                      Openness:{" "}
+                      <tspan fontWeight="500" fill="var(--opn)">
+                        {opn.toFixed(2)}
                       </tspan>
                     </text>
                   )}

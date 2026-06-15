@@ -26,6 +26,8 @@
   --qual-glow: hsla(150, 84%, 44%, 0.2);
   --coh: hsl(190, 90%, 50%);
   --coh-glow: hsla(190, 90%, 50%, 0.2);
+  --opn: hsl(340, 90%, 65%);
+  --opn-glow: hsla(340, 90%, 65%, 0.2);
   --chosen: hsl(45, 93%, 47%);
   --chosen-glow: hsla(45, 93%, 47%, 0.25);
   --modal: hsl(210, 20%, 45%);
@@ -1099,6 +1101,11 @@ input[type="range"]::-moz-range-progress {
 .bar-fill.coh {
   background: linear-gradient(90deg, hsl(190, 90%, 35%) 0%, var(--coh) 100%);
   box-shadow: 0 0 8px var(--coh-glow);
+}
+
+.bar-fill.opn {
+  background: linear-gradient(90deg, hsl(340, 90%, 45%) 0%, var(--opn) 100%);
+  box-shadow: 0 0 8px var(--opn-glow);
 }
 
 .bar-val {

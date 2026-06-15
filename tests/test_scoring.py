@@ -44,6 +44,15 @@ def test_chat_emits_axis_scores_dict() -> None:
             assert 0.0 <= v <= 1.0
 
 
+def test_openness_axis_present_when_enabled() -> None:
+    b = MockBackend()
+    cfg = ChatConfig(k=4, openness_branches=3, max_rounds=1, coherence_paraphrases=1)
+    res = chat_turn(b, b, EmbeddingEntailment(b, 0.9), [], MSG, cfg)
+    axes = res["scores"][0]["scores"]
+    assert "openness" in axes
+    assert all(0.0 <= ev["scores"]["openness"] <= 1.0 for ev in res["scores"])
+
+
 def test_coherence_weight_changes_nothing_when_zero() -> None:
     # With coherence_weight 0 the axis is computed but not used in selection.
     b = MockBackend()

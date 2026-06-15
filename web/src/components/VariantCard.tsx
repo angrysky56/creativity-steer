@@ -62,7 +62,16 @@ export function VariantCard({
         <div className="variant-bars">
           {score.scores ? (
             Object.entries(score.scores).map(([name, val]) => {
-              const kind = name === "novelty" ? "nov" : name === "quality" ? "qual" : name === "coherence" ? "coh" : name;
+              const kind =
+                name === "novelty"
+                  ? "nov"
+                  : name === "quality"
+                    ? "qual"
+                    : name === "coherence"
+                      ? "coh"
+                      : name === "openness"
+                        ? "opn"
+                        : name;
               return <Bar key={name} label={name} value={val} kind={kind} />;
             })
           ) : (

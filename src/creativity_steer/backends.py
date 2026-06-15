@@ -203,6 +203,9 @@ class MockBackend:
         if "Restate the following" in prompt:  # coherence paraphrase
             body = prompt.split(":\n", 1)[-1].rsplit("\nRestatement:", 1)[0]
             return body.strip() or "mock restatement"
+        if "Continue this thought" in prompt:  # openness continuation
+            seed = prompt.rsplit("\nNext:", 1)[0].rsplit(":\n", 1)[-1]
+            return seed.strip() or "mock continuation"
         if "skeptical critic" in prompt:  # chat-mode comparative judge
             scores: list[float] = []
             for line in prompt.splitlines():

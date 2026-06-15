@@ -181,6 +181,48 @@ class SurpriseScorer:
 
 
 # --------------------------------------------------------------------------- #
+# Counterfactual openness — does the reply open the option space?             #
+# --------------------------------------------------------------------------- #
+
+_CONTINUE_PROMPT = "Continue this thought in one short sentence:\n{text}\nNext:"
+
+
+class OpennessScorer:
+    """An option-opening reply fans out into many directions; a closed
+    pronouncement collapses. Score = normalised spread of a few continuations
+    conditioned on the candidate. The most direct measure of "surfaces
+    counterfactuals" (power-as-narrative-compression)."""
+
+    name = "openness"
+
+    def __init__(self, branches: int = 3) -> None:
+        self.branches = branches
+
+    def score(self, ctx: ScoringContext) -> list[float]:
+        if self.branches < 2:
+            return [0.5] * len(ctx.texts)
+        raw: list[float] = []
+        for t in ctx.texts:
+            conts = [
+                ctx.gen.chat(
+                    _CONTINUE_PROMPT.format(text=t), temperature=0.9, num_predict=60
+                ).strip()
+                for _ in range(self.branches)
+            ]
+            vecs = [np.asarray(v, dtype=float) for v in ctx.embed.embed(conts)]
+            sims = [
+                _cosine(vecs[i], vecs[j])
+                for i in range(len(vecs))
+                for j in range(i + 1, len(vecs))
+            ]
+            raw.append(1.0 - (sum(sims) / len(sims)) if sims else 0.5)
+        lo, hi = min(raw), max(raw)
+        if hi - lo < 1e-9:
+            return [0.5] * len(raw)
+        return [(r - lo) / (hi - lo) for r in raw]
+
+
+# --------------------------------------------------------------------------- #
 # Multi-axis selection                                                        #
 # --------------------------------------------------------------------------- #
 
