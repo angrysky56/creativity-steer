@@ -46,9 +46,9 @@ conversations are saved to `results/conversations.jsonl`.
 ## Changing the models
 
 Everything is configured in `.env` (created from `.env.example` on first
-install). By default it runs Gemma-4 E4B for the replies and Gemma-4 12B for
-judging, via Unsloth. To use a model you've fine-tuned, export it from Unsloth
-Studio and point `CS_GEN_MODEL` at it — nothing else changes.
+install). By default it runs Gemma-4 E4B (an Unsloth GGUF, served locally) for
+both replies and judging. To use a model you've fine-tuned, point `CS_GEN_HF`
+at it — nothing else changes.
 
 ---
 

@@ -70,14 +70,33 @@ CS_BACKEND=ollama CS_GEN_MODEL=granite4.1:3b CS_JUDGE_MODEL=gemma4:12b \
 CS_BACKEND=mock uv run creativity-steer-serve
 ```
 
-## Unsloth specifics
+## Running Unsloth GGUFs (the default)
 
-`unsloth run --model unsloth/<repo> --reasoning off -p <port> -y` starts an
-OpenAI-compatible `llama-server`, prints an `sk-unsloth-…` key, and exposes the
-model under its repo basename id (confirm with `GET /v1/models`). `--reasoning
-off` is required (gemma-4 otherwise routes output to a thinking channel and
-returns empty `content`). `start.sh` runs two servers and captures the keys
-automatically; to run them yourself, set `CS_GEN_API_KEY` / `CS_JUDGE_API_KEY`.
+`start.sh` serves API-backend models by running **llama.cpp's `llama-server`
+directly** (the binary Unsloth installs at `~/.unsloth/llama.cpp/llama-server`),
+NOT the `unsloth run` Studio wrapper:
+
+```bash
+LD_LIBRARY_PATH=~/.unsloth/llama.cpp/build/bin ~/.unsloth/llama.cpp/llama-server \
+  -hf unsloth/gemma-4-E4B-it-qat-GGUF:UD-Q4_K_XL \
+  --host 127.0.0.1 --port 8001 -c 8192 -ngl 99 --jinja --reasoning off \
+  --temp 1.0 --top-p 0.95 --top-k 64 --alias gemma-4-E4B-it-qat-GGUF
+```
+
+Why not `unsloth run`: the Studio wrapper forces `enable_thinking: true` and
+ignores CLI / per-request overrides, so gemma-4 emits chain-of-thought into
+`content` instead of answers. Running `llama-server` directly with
+`--reasoning off` produces clean output. It needs no API key on localhost (the
+backend sends `EMPTY`). `start.sh` launches one server per unique API port
+(gen + judge share a port → one model) and waits on `/health`.
+
+Per-role env: `CS_{GEN,JUDGE}_HF` (the `-hf` download spec, `repo:quant` or a
+local path), `CS_{GEN,JUDGE}_MODEL` (the API alias). `CS_LLAMA_SERVER` /
+`CS_LLAMA_LIBS` override the binary/lib paths; `CS_CONTEXT` the window.
+
+Memory: a 12 GB GPU fits one E4B (~5 GB) + embeddinggemma + DeBERTa. A 12B + an
+E4B together do not — use one model for both roles, or put the bigger judge on
+a second GPU / a Colab-tunnelled `llama-server`.
 
 ## Web app
 

@@ -40,7 +40,8 @@ else
 fi
 
 say "5/5  Checks"
-command -v unsloth >/dev/null 2>&1 || warn "unsloth not found — install Unsloth Studio: https://unsloth.ai/docs/new/studio/install"
+LLAMA_BIN="${CS_LLAMA_SERVER:-$HOME/.unsloth/llama.cpp/llama-server}"
+[ -x "$LLAMA_BIN" ] || warn "llama-server not found at $LLAMA_BIN — install Unsloth: curl -fsSL https://unsloth.ai/install.sh | sh"
 [ -f .env ] || { cp .env.example .env; echo "Created .env"; }
 
 printf "\n\033[1;32mDone. Start everything with:  ./start.sh\033[0m\n"

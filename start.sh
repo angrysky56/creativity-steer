@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Start everything: Unsloth model server(s) + backend + frontend.
-# Stop everything with Ctrl+C (or ./stop.sh).
+# Start everything: model server(s) + backend + frontend.
+# Stop with Ctrl+C (or ./stop.sh).
 set -uo pipefail
 cd "$(dirname "$0")"
 mkdir -p .run logs
@@ -26,12 +26,17 @@ trap cleanup EXIT INT TERM
 
 track() { echo "$1" >> .run/pids; }
 port_of() { echo "$1" | sed -E 's#.*://[^:/]+:([0-9]+).*#\1#'; }
-CTX="${CS_CONTEXT:-8192}"   # small context => fits a 12GB GPU and faster
 
 [ -f .env ] || cp .env.example .env
 set -a; . ./.env; set +a
-command -v unsloth >/dev/null 2>&1 || die "unsloth not found — install Unsloth Studio."
+CTX="${CS_CONTEXT:-8192}"
+LLAMA_BIN="${CS_LLAMA_SERVER:-$HOME/.unsloth/llama.cpp/llama-server}"
+LLAMA_LIBS="${CS_LLAMA_LIBS:-$HOME/.unsloth/llama.cpp/build/bin}"
 
+kind_of() { local v="CS_${1}_BACKEND"; echo "${!v:-${CS_BACKEND:-ollama}}"; }
+val()     { local v="CS_${1}_${2}"; echo "${!v:-}"; }
+
+# node for the frontend
 if ! command -v node >/dev/null 2>&1; then
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   # shellcheck disable=SC1091
@@ -39,47 +44,39 @@ if ! command -v node >/dev/null 2>&1; then
   nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
 fi
 
-say "Embedding model (Ollama)"
-ollama pull "${CS_EMBED_MODEL:-embeddinggemma}" >/dev/null 2>&1 || \
-  printf "   (could not pull %s — is ollama running?)\n" "${CS_EMBED_MODEL:-embeddinggemma}"
+say "Local models (Ollama)"
+pull_ollama() { ollama pull "$1" >/dev/null 2>&1 && ok "$1" || echo "   (could not pull $1 — is ollama running?)"; }
+[ "$(kind_of GEN)" = ollama ]   && pull_ollama "$CS_GEN_MODEL"
+[ "$(kind_of JUDGE)" = ollama ] && pull_ollama "$CS_JUDGE_MODEL"
+pull_ollama "${CS_EMBED_MODEL:-embeddinggemma}"
 
-LAST_KEY=""
-start_unsloth() {   # <port> <model-id> <logfile>
-  local port=$1 model=$2 log=$3
-  say "Unsloth: $model on :$port  (first run downloads the model)"
-  unsloth run --model "unsloth/$model" --reasoning off --disable-tools \
-    -c "$CTX" -p "$port" -y > "$log" 2>&1 &
+# Launch a llama-server for each unique API port (thinking OFF).
+declare -A SERVED
+start_llama() {   # <port> <hf-repo:quant> <alias> <logfile>
+  local port=$1 hf=$2 alias=$3 log=$4
+  [ -x "$LLAMA_BIN" ] || die "llama-server not found at $LLAMA_BIN — install Unsloth or set CS_LLAMA_SERVER."
+  say "Model server: $alias on :$port  (first run downloads the model)"
+  LD_LIBRARY_PATH="$LLAMA_LIBS:${LD_LIBRARY_PATH:-}" "$LLAMA_BIN" \
+    -hf "$hf" --host 127.0.0.1 --port "$port" -c "$CTX" -ngl 99 --jinja \
+    --reasoning off --temp 1.0 --top-p 0.95 --top-k 64 --alias "$alias" \
+    > "$log" 2>&1 &
   track $!
-  local key=""
-  for _ in $(seq 1 240); do
-    key=$(grep -oE 'sk-unsloth-[A-Za-z0-9_-]+' "$log" | head -n1 || true)
-    [ -n "$key" ] && break
-    sleep 2
-  done
-  [ -n "$key" ] || die "no API key from :$port; check $log"
-  printf "   waiting for the model to actually serve (loads after download)…\n"
-  for _ in $(seq 1 240); do
-    if curl -sf -m 90 -X POST "http://localhost:$port/v1/chat/completions" \
-         -H "Authorization: Bearer $key" -H "Content-Type: application/json" \
-         -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":4}" \
-         2>/dev/null | grep -q '"choices"'; then
-      ok "ready on :$port"; LAST_KEY="$key"; return
-    fi
+  for _ in $(seq 1 300); do
+    curl -s -m 5 "http://127.0.0.1:$port/health" 2>/dev/null | grep -q '"ok"' && { ok "ready on :$port"; return; }
     sleep 3
   done
-  die "model on :$port never served a completion; check $log"
+  die "model on :$port never became ready; check $log"
 }
-
-GEN_PORT=$(port_of "${CS_GEN_API_BASE_URL:-http://localhost:8001/v1}")
-JUDGE_PORT=$(port_of "${CS_JUDGE_API_BASE_URL:-http://localhost:8001/v1}")
-
-start_unsloth "$GEN_PORT" "${CS_GEN_MODEL:?set CS_GEN_MODEL}" "logs/unsloth-$GEN_PORT.log"
-GEN_KEY="$LAST_KEY"; JUDGE_KEY="$LAST_KEY"
-if [ "$JUDGE_PORT" != "$GEN_PORT" ]; then   # second model only if a different port
-  start_unsloth "$JUDGE_PORT" "${CS_JUDGE_MODEL:?set CS_JUDGE_MODEL}" "logs/unsloth-$JUDGE_PORT.log"
-  JUDGE_KEY="$LAST_KEY"
-fi
-export CS_GEN_API_KEY="$GEN_KEY" CS_JUDGE_API_KEY="$JUDGE_KEY"
+maybe_serve() {   # <role>
+  [ "$(kind_of "$1")" = api ] || return 0
+  local port hf; port=$(port_of "$(val "$1" API_BASE_URL)"); hf=$(val "$1" HF)
+  [ -n "$hf" ] || die "CS_${1}_HF is empty (stale .env?). Run: rm .env && ./start.sh"
+  [ -n "${SERVED[$port]:-}" ] && return 0
+  start_llama "$port" "$hf" "$(val "$1" MODEL)" "logs/llama-$port.log"
+  SERVED[$port]=1
+}
+maybe_serve GEN
+maybe_serve JUDGE
 
 say "Backend (FastAPI)"
 uv run creativity-steer-serve > logs/backend.log 2>&1 &

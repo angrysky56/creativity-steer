@@ -275,6 +275,7 @@ class OpenAIBackend:
 
         self.model = model
         self.embed_model = embed_model or model
+        self._resolved: str | None = None
         self._client = OpenAI(
             base_url=base_url or os.getenv("CS_API_BASE_URL"),
             api_key=api_key or os.getenv("CS_API_KEY") or "EMPTY",
@@ -282,15 +283,39 @@ class OpenAIBackend:
             max_retries=1,
         )
 
+    def _model_id(self) -> str:
+        """Resolve the configured name to an id the server actually serves.
+
+        Some servers (e.g. the Unsloth llama-server router) ignore ``--alias``
+        and expose models under ``repo:quant`` ids. We query ``/v1/models`` once
+        and pick an exact match, else one containing the configured name, else
+        the only/first model. Falls back to the configured name on any error.
+        """
+        if self._resolved is not None:
+            return self._resolved
+        rid = self.model
+        try:
+            ids = [m.id for m in self._client.models.list().data]
+            if self.model in ids:
+                rid = self.model
+            else:
+                matches = [i for i in ids if self.model in i]
+                rid = matches[0] if matches else (ids[0] if ids else self.model)
+        except Exception:
+            rid = self.model
+        self._resolved = rid
+        return rid
+
     def generate_samples(
         self, prompt: str, n: int, temperature: float, max_tokens: int = 128
     ) -> list[GenSample]:
         """Draw ``n`` samples, summing token logprobs when the server gives them."""
+        model = self._model_id()
         out: list[GenSample] = []
         for _ in range(n):
             try:
                 resp = self._client.chat.completions.create(
-                    model=self.model,
+                    model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -298,7 +323,7 @@ class OpenAIBackend:
                 )
             except Exception:  # server may reject logprobs -> retry without
                 resp = self._client.chat.completions.create(
-                    model=self.model,
+                    model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -316,7 +341,7 @@ class OpenAIBackend:
     ) -> str:
         """One completion for a judge / pipeline call."""
         resp = self._client.chat.completions.create(
-            model=self.model,
+            model=self._model_id(),
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             max_tokens=num_predict,
