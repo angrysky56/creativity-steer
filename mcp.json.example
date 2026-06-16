@@ -1,9 +1,23 @@
 {
   "mcpServers": {
-    "echo": {
-      "command": "python",
-      "args": ["-c", "import sys, json; print(json.dumps({'tools': [{'name': 'echo', 'description': 'Echos input', 'inputSchema': {'type': 'object', 'properties': {'msg': {'type': 'string'}}}}]}));"],
-      "transport": "stdio"
+    "docker-mcp": {
+      "command": "uvx",
+      "args": [
+        "docker-mcp"
+      ]
+    },
+    "desktop-commander": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@wonderwhy-er/desktop-commander@latest"
+      ]
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ]
     }
   }
 }

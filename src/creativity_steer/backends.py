@@ -36,17 +36,14 @@ class LLMBackend(Protocol):
         self, prompt: str, n: int, temperature: float, max_tokens: int = 128
     ) -> list[GenSample]:
         """Sample ``n`` candidate continuations with sequence logprobs."""
-        ...
 
     def chat(
         self, prompt: str, temperature: float = 0.0, num_predict: int | None = None
     ) -> str:
         """Single completion (used by the judge agents)."""
-        ...
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Return one embedding vector per input string."""
-        ...
 
 
 class OllamaBackend:
@@ -168,9 +165,10 @@ class MockBackend:
         self._cluster = {t: c for t, _, _, c in self.pool}
 
     def generate_samples(
-        self, prompt: str, n: int, temperature: float, max_tokens: int = 128
+        self, prompt: str, n: int, temperature: float, _max_tokens: int = 128
     ) -> list[GenSample]:
         """Temperature-scaled softmax sampling; logprob = scaled base logit."""
+        # trunk-ignore(bandit/B311)
         rng = random.Random(int(hashlib.sha256(prompt.encode()).hexdigest(), 16))
         temp = max(temperature, 1e-3)
         logits = [logit / temp for _, logit, _, _ in self.pool]
@@ -188,7 +186,7 @@ class MockBackend:
         return 0.5
 
     def chat(
-        self, prompt: str, temperature: float = 0.0, num_predict: int | None = None
+        self, prompt: str, _temperature: float = 0.0, _num_predict: int | None = None
     ) -> str:
         """Return deterministic, judge-parseable text by prompt type."""
         q = self._quality_of(prompt)

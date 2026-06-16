@@ -21,7 +21,7 @@ import os
 from creativity_steer.backends import LLMBackend, MockBackend, OllamaBackend
 
 _DEFAULT_MODELS = {
-    "GEN": "granite4.1:3b",
+    "GEN": "gemma4:12b",
     "JUDGE": "gemma4:12b",
     "EMBED": "embeddinggemma",
 }

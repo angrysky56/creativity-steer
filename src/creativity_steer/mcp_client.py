@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ToolSpec:
     """Specification of an available MCP tool."""
+
     name: str
     server: str
     description: str
@@ -31,6 +32,7 @@ class ToolSpec:
 @dataclass
 class ToolResult:
     """Result of calling an MCP tool."""
+
     is_error: bool
     text: str
     content: List[Dict[str, Any]]
@@ -92,7 +94,8 @@ class McpClient:
             if config.get("transport", "stdio") != "stdio":
                 logger.warning(
                     "Unsupported transport for server %s: %s",
-                    name, config.get('transport')
+                    name,
+                    config.get("transport"),
                 )
                 continue
 
@@ -217,7 +220,6 @@ class MockMcpClient:
 
     def disconnect(self):
         """Disconnect mock servers."""
-        pass
 
     def list_tools(self) -> List[ToolSpec]:
         """List available mock tools."""

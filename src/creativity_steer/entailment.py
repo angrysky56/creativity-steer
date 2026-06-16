@@ -24,7 +24,6 @@ class EntailmentModel(Protocol):
 
     def entails(self, question: str, premise: str, hypothesis: str) -> bool:
         """True if ``premise`` semantically entails ``hypothesis``."""
-        ...
 
 
 def bidirectional_equivalent(
@@ -74,7 +73,7 @@ class EmbeddingEntailment:
             self._cache[text] = np.asarray(self.backend.embed([text])[0], dtype=float)
         return self._cache[text]
 
-    def entails(self, question: str, premise: str, hypothesis: str) -> bool:
+    def entails(self, _question: str, premise: str, hypothesis: str) -> bool:
         a, b = self._vec(premise), self._vec(hypothesis)
         na, nb = np.linalg.norm(a), np.linalg.norm(b)
         if na == 0.0 or nb == 0.0:
@@ -91,7 +90,7 @@ class DebertaEntailment:
         device = _pick_device()
         self._pipe = pipeline("text-classification", model=model_name, device=device)
 
-    def entails(self, question: str, premise: str, hypothesis: str) -> bool:
+    def entails(self, _question: str, premise: str, hypothesis: str) -> bool:
         label = self._pipe({"text": premise, "text_pair": hypothesis})["label"]
         return label.lower() == "entailment"
 

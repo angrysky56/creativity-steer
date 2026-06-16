@@ -22,14 +22,18 @@ class GroundingContext:
         if not self.memory and not self.tool_results:
             return ""
 
-        lines = ["\n[KNOWN CONTEXT] Use these facts/lessons to inform a RANGE of replies (do not collapse to a single answer):"]
-        
+        lines = [
+            "\n[KNOWN CONTEXT] Use these facts/lessons to inform a RANGE of replies (do not collapse to a single answer):"
+        ]
+
         if self.memory:
             lines.append("--- Past Discoveries ---")
             for item in self.memory:
                 lines.append(f"- {item.content}")
                 if item.alternatives:
-                    lines.append(f"  Alternatives to consider: {', '.join(item.alternatives)}")
+                    lines.append(
+                        f"  Alternatives to consider: {', '.join(item.alternatives)}"
+                    )
 
         if self.tool_results:
             lines.append("--- Tool Data ---")
@@ -38,7 +42,7 @@ class GroundingContext:
                     lines.append(f"- {result['text']}")
                 else:
                     lines.append(f"- {str(result)}")
-        
+
         lines.append("[END CONTEXT]\n")
         return "\n".join(lines)
 
@@ -50,7 +54,12 @@ class GroundingProvider(Protocol):
 class DefaultGrounding:
     """Default grounding implementation using memory and (optional) MCP tools."""
 
-    def __init__(self, memory: MemoryStore, mcp_client: McpClient | None = None, retrieval_tools: list[str] | None = None):
+    def __init__(
+        self,
+        memory: MemoryStore,
+        mcp_client: McpClient | None = None,
+        retrieval_tools: list[str] | None = None,
+    ):
         self.memory = memory
         self.mcp_client = mcp_client
         self.retrieval_tools = retrieval_tools or []

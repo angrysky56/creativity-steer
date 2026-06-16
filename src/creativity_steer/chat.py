@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from creativity_steer.backends import GenSample, LLMBackend
 from creativity_steer.control import TurnController
 from creativity_steer.entailment import EntailmentModel
+from creativity_steer.grounding import GroundingProvider
 from creativity_steer.reference import normalize_max, reference_distances
 from creativity_steer.scoring import (
     CoherenceScorer,
@@ -28,7 +29,6 @@ from creativity_steer.scoring import (
     select_multi,
 )
 from creativity_steer.variants import parse_numbered_list
-from creativity_steer.grounding import GroundingProvider
 
 
 @dataclass

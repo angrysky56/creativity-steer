@@ -17,7 +17,7 @@ from dataclasses import dataclass
 class TurnController:
     """Decides, after each brainstorm round, whether to keep exploring."""
 
-    explore_diversity_threshold: float = 0.34   # min fraction of non-collapsed variants
+    explore_diversity_threshold: float = 0.34  # min fraction of non-collapsed variants
     temperature_step: float = 0.3
     max_temperature: float = 1.5
     novelty_eps: float = 0.05

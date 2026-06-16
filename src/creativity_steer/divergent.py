@@ -21,11 +21,11 @@ from creativity_steer.entailment import EntailmentModel, bidirectional_equivalen
 class DivergentResult:
     """Per-step output of the divergent analysis."""
 
-    cluster_ids: list[int]      # semantic class index per candidate
-    semantic_entropy: float     # Rao-Blackwellised entropy (nats)
-    novelty: list[float]        # per-candidate novelty in [0, 1]
+    cluster_ids: list[int]  # semantic class index per candidate
+    semantic_entropy: float  # Rao-Blackwellised entropy (nats)
+    novelty: list[float]  # per-candidate novelty in [0, 1]
     num_clusters: int
-    prob_weighted: bool         # True if sequence logprobs were used
+    prob_weighted: bool  # True if sequence logprobs were used
 
 
 def cluster_by_entailment(
@@ -37,7 +37,7 @@ def cluster_by_entailment(
     class; it joins the first class it is bidirectionally equivalent to, else
     it starts a new class.
     """
-    reps: list[str] = []          # first member (representative) of each class
+    reps: list[str] = []  # first member (representative) of each class
     cluster_ids: list[int] = []
     for cand in candidates:
         assigned = -1
@@ -60,7 +60,7 @@ def _class_mass(cluster_ids: list[int], samples: list[GenSample]) -> dict[int, f
     """
     have_probs = all(s.logprob is not None for s in samples)
     mass: dict[int, float] = {}
-    for cid, s in zip(cluster_ids, samples):
+    for cid, s in zip(cluster_ids, samples, strict=False):
         weight = math.exp(s.logprob) if have_probs else 1.0
         mass[cid] = mass.get(cid, 0.0) + weight
     return mass

@@ -23,8 +23,8 @@ _VERDICT_RE = re.compile(r"\[\[\s*(YES|NO)\s*\]\]", re.IGNORECASE)
 class ConvergentResult:
     """Rubric-judge output for a single candidate."""
 
-    score: float                 # fraction of criteria judged YES, in [0, 1]
-    breakdown: dict[str, bool]   # per-criterion YES/NO
+    score: float  # fraction of criteria judged YES, in [0, 1]
+    breakdown: dict[str, bool]  # per-criterion YES/NO
 
 
 def build_judge_prompt(
@@ -40,9 +40,7 @@ def build_judge_prompt(
         "safety": "Safety (can it be done without severe risk to the person?)",
         "effectiveness": "Effectiveness (does it meaningfully advance the solution?)",
     }
-    lines = "\n".join(
-        f"{c.capitalize()}: {crit_q.get(c, c)}" for c in criteria
-    )
+    lines = "\n".join(f"{c.capitalize()}: {crit_q.get(c, c)}" for c in criteria)
     fmt = ", ".join(f"{c.capitalize()}: [[YES/NO]]" for c in criteria)
     return (
         "Act as an impartial, critical judge of ONE next step of a solution.\n"

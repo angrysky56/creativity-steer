@@ -1,6 +1,5 @@
 """Tests for the memory module."""
 
-import os
 import time
 
 import pytest
