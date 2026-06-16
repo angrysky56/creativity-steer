@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
@@ -30,9 +30,10 @@ class ScoringContext:
     history: list[dict[str, str]]
     user_msg: str
     modal: str
-    texts: list[str]              # modal + variants
-    samples: list[GenSample]      # parallel to texts; logprob may be None
+    texts: list[str]  # modal + variants
+    samples: list[GenSample]  # parallel to texts; logprob may be None
     coherence_paraphrases: int = 2
+    seed: int | None = None  # base seed; scorers offset it per sample
 
 
 class Scorer(Protocol):
@@ -140,12 +141,17 @@ class CoherenceScorer:
         if p == 0:
             return [1.0] * len(ctx.texts)
         out: list[float] = []
-        for t in ctx.texts:
+        for ti, t in enumerate(ctx.texts):
             paras = [
                 ctx.gen.chat(
-                    _PARAPHRASE_PROMPT.format(text=t), temperature=0.7, num_predict=80
+                    _PARAPHRASE_PROMPT.format(text=t),
+                    temperature=0.7,
+                    num_predict=80,
+                    # distinct offset per (candidate, paraphrase) keeps the
+                    # samples diverse while remaining reproducible under a seed
+                    seed=(ctx.seed + ti * 97 + j + 1) if ctx.seed else None,
                 ).strip()
-                for _ in range(p)
+                for j in range(p)
             ]
             vecs = [np.asarray(v, dtype=float) for v in ctx.embed.embed([t, *paras])]
             sims = [
@@ -173,7 +179,14 @@ class SurpriseScorer:
         lps = [s.logprob for s in ctx.samples]
         if any(lp is None for lp in lps) or len(lps) < 2:
             return [0.5] * len(ctx.texts)
-        vals = [-lp for lp in lps]  # higher = more surprising
+        # Length-normalise: mean per-token logprob, so a long reply is not judged
+        # "more surprising" merely for being long. Higher mean surprisal (the
+        # model was less certain token-to-token) = more likely freshly composed
+        # than recited. Memorised clichés sit at very high probability (~0 logprob).
+        vals = []
+        for s in ctx.samples:
+            n = s.n_tokens if (s.n_tokens and s.n_tokens > 0) else 1
+            vals.append(-(s.logprob / n))  # higher = more surprising
         lo, hi = min(vals), max(vals)
         if hi - lo < 1e-9:
             return [0.5] * len(ctx.texts)
@@ -202,12 +215,15 @@ class OpennessScorer:
         if self.branches < 2:
             return [0.5] * len(ctx.texts)
         raw: list[float] = []
-        for t in ctx.texts:
+        for ti, t in enumerate(ctx.texts):
             conts = [
                 ctx.gen.chat(
-                    _CONTINUE_PROMPT.format(text=t), temperature=0.9, num_predict=60
+                    _CONTINUE_PROMPT.format(text=t),
+                    temperature=0.9,
+                    num_predict=60,
+                    seed=(ctx.seed + ti * 89 + j + 1) if ctx.seed else None,
                 ).strip()
-                for _ in range(self.branches)
+                for j in range(self.branches)
             ]
             vecs = [np.asarray(v, dtype=float) for v in ctx.embed.embed(conts)]
             sims = [
@@ -220,6 +236,50 @@ class OpennessScorer:
         if hi - lo < 1e-9:
             return [0.5] * len(raw)
         return [(r - lo) / (hi - lo) for r in raw]
+
+
+# --------------------------------------------------------------------------- #
+# Originality — is it fresh, or a remembered cliché?                          #
+# --------------------------------------------------------------------------- #
+
+_ORIGINALITY_INSTR = (
+    "You have read very widely and remember common jokes, puns, sayings, memes, "
+    "and stock phrases. For EACH candidate reply, judge ORIGINALITY for this "
+    "request: 1.0 = genuinely fresh, you have not seen it before; 0.0 = a "
+    "well-known existing joke / pun / meme / stock phrase you clearly recognise. "
+    "A clever reply that is still a recognised classic scores LOW — recognition, "
+    "not cleverness, is what lowers the score. Name what it resembles in <=6 "
+    "words, then score.\n"
+    "Return ONLY a JSON array, one object per reply IN ORDER:\n"
+    '[{"i":1,"resembles":"...","score":0.5}, ...]'
+)
+
+
+def judge_originality(
+    judge: LLMBackend,
+    history: list[dict[str, str]],
+    user_msg: str,
+    candidates: list[str],
+) -> list[float]:
+    """Score each candidate's freshness vs. recognised existing material.
+
+    Novelty-from-modal cannot tell an original idea from a memorised cliché that
+    merely differs from the greedy answer; this axis closes that gap.
+    """
+    listing = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(candidates))
+    prompt = (
+        f"{_history_block(history)}User request:\n{user_msg}\n\n"
+        f"Candidate replies:\n{listing}\n\n{_ORIGINALITY_INSTR}"
+    )
+    raw = judge.chat(prompt, temperature=0.0, num_predict=40 * len(candidates) + 160)
+    return _parse_scores(raw, len(candidates))
+
+
+class OriginalityScorer:
+    name = "originality"
+
+    def score(self, ctx: ScoringContext) -> list[float]:
+        return judge_originality(ctx.judge, ctx.history, ctx.user_msg, ctx.texts)
 
 
 # --------------------------------------------------------------------------- #
@@ -258,7 +318,11 @@ def select_multi(
     floor_vals = scores.get(floor_axis, [1.0] * n)
     eligible = [i for i in range(n) if frontier[i] and floor_vals[i] >= floor]
     if not eligible:
-        eligible = list(range(n))
+        # No frontier candidate clears the floor. Do NOT silently fall back to a
+        # high-novelty / low-quality pick (that defeats the floor, the
+        # anti-Goodhart gate). Honor the floor axis: choose the best-quality
+        # candidate available. Caller can detect "floor not met" via the score.
+        return max(range(n), key=lambda i: floor_vals[i]), frontier
     wsum = sum(weights[a] for a in axes) or 1.0
 
     def scalar(i: int) -> float:
@@ -272,9 +336,14 @@ def select_multi(
 EXTRA_SCORERS: list[Scorer] = [QualityScorer(), CoherenceScorer()]
 
 
-def score_extra(ctx: ScoringContext, scorers: list[Scorer] | None = None) -> dict[str, list[float]]:
+def score_extra(
+    ctx: ScoringContext, scorers: list[Scorer] | None = None
+) -> dict[str, list[float]]:
     """Run each scorer and return {axis_name: per-candidate scores}."""
-    return {s.name: s.score(ctx) for s in (scorers if scorers is not None else EXTRA_SCORERS)}
+    return {
+        s.name: s.score(ctx)
+        for s in (scorers if scorers is not None else EXTRA_SCORERS)
+    }
 
 
 def funnel_representatives(

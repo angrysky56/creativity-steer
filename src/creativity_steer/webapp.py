@@ -21,29 +21,40 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from creativity_steer.backends import MockBackend
 from creativity_steer.chat import ChatConfig, chat_turn_stream
 from creativity_steer.config import backend_summary, build_backend, load_env
+from creativity_steer.consolidation import consolidate
 from creativity_steer.entailment import EmbeddingEntailment, make_entailment
+from creativity_steer.grounding import DefaultGrounding
 from creativity_steer.mcp_client import McpClient
 from creativity_steer.memory import build_memory
-from creativity_steer.grounding import DefaultGrounding
-from creativity_steer.consolidation import consolidate
 
 LOG_PATH = Path("results/conversations.jsonl")
 _state: dict | None = None
 _lock = threading.Lock()
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an integer env var, falling back to ``default`` if unset/invalid."""
+    try:
+        return int(os.getenv(name, "").strip())
+    except (TypeError, ValueError):
+        return default
+
+
 class ChatRequest(BaseModel):
     message: str
     history: list[dict[str, str]] = []
     k: int = 5
+    seed: int = 0  # 0 = random; any other value reproduces the run
     novelty_weight: float = 0.35
     coherence_weight: float = 0.2
     openness_weight: float = 0.0
+    originality_weight: float = 0.0
+    surprise_weight: float = 0.0
     convergent_floor: float = 0.4
     temperature: float = 0.7
     openness_branches: int = 0
@@ -51,6 +62,18 @@ class ChatRequest(BaseModel):
     prime_n: int = 4
     branch: bool = False
     synthesize: bool = False
+    trajectory: bool = False
+    refine_passes: int = 0
+    # generation length budgets (tokens); <= 0 means unlimited (model EOS).
+    # Defaults come from .env so the whole system can be tuned in one place.
+    modal_tokens: int = Field(default_factory=lambda: _env_int("CS_MODAL_TOKENS", 256))
+    brainstorm_tokens: int = Field(
+        default_factory=lambda: _env_int("CS_BRAINSTORM_TOKENS", 700)
+    )
+    branch_tokens: int = Field(default_factory=lambda: _env_int("CS_BRANCH_TOKENS", 0))
+    response_tokens: int = Field(
+        default_factory=lambda: _env_int("CS_RESPONSE_TOKENS", 0)
+    )
 
 
 def _build_state() -> dict:
@@ -79,9 +102,13 @@ def _build_state() -> dict:
         grounding = DefaultGrounding(memory, mcp_client, tools)
 
     return {
-        "gen": gen, "judge": judge, "embed": embed, "ent": ent,
-        "memory": memory, "grounding": grounding,
-        "backend": backend_summary()
+        "gen": gen,
+        "judge": judge,
+        "embed": embed,
+        "ent": ent,
+        "memory": memory,
+        "grounding": grounding,
+        "backend": backend_summary(),
     }
 
 
@@ -110,16 +137,16 @@ def _log_turn(req: ChatRequest, events: list[dict], state: dict) -> None:
         "selected": by_type["selected"][0]["index"],
         "response": by_type["response"][0]["text"],
     }
-    
+
     # Extract controller variables if available for impact_score
     if "controller" in by_type and by_type["controller"]:
         ctrl = by_type["controller"][0]
         record["rounds"] = ctrl.get("rounds", 1)
         record["initial_diversity"] = ctrl.get("diversity", 0.0)
-        
+
     # See if there's any is_correction logic we can infer, or let the user pass it
     # Currently just passing defaults
-        
+
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
@@ -138,8 +165,10 @@ app.add_middleware(
 def health() -> dict:
     return {"ok": True, "backend": get_state()["backend"]}
 
+
 class ConsolidateRequest(BaseModel):
     threshold: float = 0.4
+
 
 @app.post("/api/consolidate")
 def api_consolidate(req: ConsolidateRequest) -> dict:
@@ -147,16 +176,16 @@ def api_consolidate(req: ConsolidateRequest) -> dict:
     memory = state.get("memory")
     if not memory:
         return {"error": "Memory is disabled or unconfigured."}
-    
+
     if not LOG_PATH.exists():
         return {"consolidated": 0, "message": "No logs to consolidate"}
-        
+
     turns = []
     with LOG_PATH.open("r", encoding="utf-8") as fh:
         for line in fh:
             if line.strip():
                 turns.append(json.loads(line))
-                
+
     new_memories = consolidate(turns, memory, state["gen"], threshold=req.threshold)
     return {"consolidated": len(new_memories)}
 
@@ -165,21 +194,40 @@ def api_consolidate(req: ConsolidateRequest) -> dict:
 def chat(req: ChatRequest) -> StreamingResponse:
     state = get_state()
     cfg = ChatConfig(
-        k=req.k, temperature=req.temperature,
-        novelty_weight=req.novelty_weight, coherence_weight=req.coherence_weight,
-        openness_weight=req.openness_weight, openness_branches=req.openness_branches,
+        k=req.k,
+        temperature=req.temperature,
+        seed=req.seed,
+        novelty_weight=req.novelty_weight,
+        coherence_weight=req.coherence_weight,
+        openness_weight=req.openness_weight,
+        originality_weight=req.originality_weight,
+        surprise_weight=req.surprise_weight,
+        openness_branches=req.openness_branches,
         convergent_floor=req.convergent_floor,
-        breadth_k=req.breadth_k, prime_n=req.prime_n,
-        branch=req.branch, synthesize=req.synthesize,
+        breadth_k=req.breadth_k,
+        prime_n=req.prime_n,
+        branch=req.branch,
+        synthesize=req.synthesize,
+        trajectory=req.trajectory,
+        refine_passes=req.refine_passes,
+        modal_tokens=req.modal_tokens,
+        brainstorm_tokens=req.brainstorm_tokens,
+        branch_tokens=req.branch_tokens,
+        response_tokens=req.response_tokens,
     )
 
     def event_gen():
         collected: list[dict] = []
         try:
             for ev in chat_turn_stream(
-                state["gen"], state["judge"], state["ent"],
-                req.history, req.message, cfg, state["embed"],
-                grounding=state.get("grounding")
+                state["gen"],
+                state["judge"],
+                state["ent"],
+                req.history,
+                req.message,
+                cfg,
+                state["embed"],
+                grounding=state.get("grounding"),
             ):
                 collected.append(ev)
                 yield f"data: {json.dumps(ev)}\n\n"
@@ -198,7 +246,8 @@ def run() -> None:
 
     load_env()
     uvicorn.run(
-        app, host=os.getenv("CS_HOST", "127.0.0.1"),
+        app,
+        host=os.getenv("CS_HOST", "127.0.0.1"),
         port=int(os.getenv("CS_PORT", "8000")),
     )
 

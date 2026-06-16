@@ -26,6 +26,7 @@ class GenSample:
 
     text: str
     logprob: float | None = None  # sum of token logprobs, or None if unavailable
+    n_tokens: int | None = None  # generated token count (for length-normalising)
 
 
 @runtime_checkable
@@ -38,9 +39,22 @@ class LLMBackend(Protocol):
         """Sample ``n`` candidate continuations with sequence logprobs."""
 
     def chat(
-        self, prompt: str, temperature: float = 0.0, num_predict: int | None = None
+        self,
+        prompt: str,
+        temperature: float = 0.0,
+        num_predict: int | None = None,
+        seed: int | None = None,
     ) -> str:
         """Single completion (used by the judge agents)."""
+
+    def chat_logprob(
+        self,
+        prompt: str,
+        temperature: float = 0.9,
+        num_predict: int | None = None,
+        seed: int | None = None,
+    ) -> GenSample:
+        """One completion with its generated-token logprobs (for surprise)."""
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Return one embedding vector per input string."""
@@ -104,12 +118,23 @@ class OllamaBackend:
         return out
 
     def chat(
-        self, prompt: str, temperature: float = 0.0, num_predict: int | None = None
+        self,
+        prompt: str,
+        temperature: float = 0.0,
+        num_predict: int | None = None,
+        seed: int | None = None,
     ) -> str:
-        """One completion for a judge agent."""
+        """One completion for a judge agent.
+
+        ``num_predict <= 0`` (or ``None``) means *no ceiling*: the model emits
+        its natural EOS and stops when the reply is actually complete. ``seed``
+        (when set) makes the sample reproducible.
+        """
         options: dict = {"temperature": temperature}
-        if num_predict is not None:
+        if num_predict is not None and num_predict > 0:
             options["num_predict"] = num_predict
+        if seed is not None:
+            options["seed"] = seed
         resp = self._client.chat(
             model=self.gen_model,
             messages=[{"role": "user", "content": prompt}],
@@ -117,6 +142,30 @@ class OllamaBackend:
             think=self.think,
         )
         return resp["message"]["content"].strip()
+
+    def chat_logprob(
+        self,
+        prompt: str,
+        temperature: float = 0.9,
+        num_predict: int | None = None,
+        seed: int | None = None,
+    ) -> GenSample:
+        """One completion with summed generated-token logprobs + token count."""
+        options: dict = {"temperature": temperature}
+        if num_predict is not None and num_predict > 0:
+            options["num_predict"] = num_predict
+        if seed is not None:
+            options["seed"] = seed
+        resp = self._client.chat(
+            model=self.gen_model,
+            messages=[{"role": "user", "content": prompt}],
+            options=options,
+            logprobs=True,
+            think=self.think,
+        )
+        lps = getattr(resp, "logprobs", None) or []
+        n = len(lps) or None
+        return GenSample(resp["message"]["content"].strip(), self._seq_logprob(resp), n)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed each string with the embedding model."""
@@ -186,19 +235,28 @@ class MockBackend:
         return 0.5
 
     def chat(
-        self, prompt: str, _temperature: float = 0.0, _num_predict: int | None = None
+        self,
+        prompt: str,
+        temperature: float = 0.0,
+        num_predict: int | None = None,
+        seed: int | None = None,
     ) -> str:
         """Return deterministic, judge-parseable text by prompt type."""
+        del temperature, num_predict, seed  # unused: deterministic by prompt type
         q = self._quality_of(prompt)
         verdict = "YES" if q >= self.quality_cutoff else "NO"
-        if "BRAINSTORM TASK" in prompt:  # single-call variant brainstorm
+        if "BRAINSTORM TASK" in prompt or "MORE replies" in prompt:
+            # single-call brainstorm, or a cluster-aware trajectory wave
             return "\n".join(
                 f"{i + 1}) {text}" for i, (text, _, _, _) in enumerate(self.pool)
             )
         if "Develop this idea" in prompt:  # branch / deepen
             seed = prompt.rsplit("\nDeeper reply:", 1)[0].rsplit(":\n", 1)[-1]
             return seed.strip() or "mock deeper reply"
-        if "weaves together" in prompt:  # synthesis
+        if "Rewrite (reply only)" in prompt:  # guided refine step
+            cand = prompt.split("Current reply:\n", 1)[-1].split("\n\n", 1)[0]
+            return cand.strip() or "mock refined reply"
+        if "INTEGRATES the strongest" in prompt:  # synthesis
             found = next((t for t in self._quality if t in prompt), None)
             return found or "mock synthesis"
         if "Restate the following" in prompt:  # coherence paraphrase
@@ -207,7 +265,8 @@ class MockBackend:
         if "Continue this thought" in prompt:  # openness continuation
             seed = prompt.rsplit("\nNext:", 1)[0].rsplit(":\n", 1)[-1]
             return seed.strip() or "mock continuation"
-        if "skeptical critic" in prompt:  # chat-mode comparative judge
+        if "skeptical critic" in prompt or "judge ORIGINALITY" in prompt:
+            # chat-mode comparative judge (quality) or originality judge
             scores: list[float] = []
             for line in prompt.splitlines():
                 s = line.strip()
@@ -249,6 +308,19 @@ class MockBackend:
         if "Extract a concise, factual lesson" in prompt:
             return "Apples fall down."
         return "mock response"
+
+    def chat_logprob(
+        self,
+        prompt: str,
+        temperature: float = 0.9,
+        num_predict: int | None = None,
+        seed: int | None = None,
+    ) -> GenSample:
+        """Deterministic text + a per-text-stable pseudo-logprob (for tests)."""
+        text = self.chat(prompt, temperature, num_predict, seed)
+        ntok = max(1, len(text.split()))
+        mean = -(0.1 + (int(hashlib.sha256(text.encode()).hexdigest(), 16) % 50) / 100)
+        return GenSample(text, mean * ntok, ntok)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Cluster-aware deterministic embeddings (same cluster -> similar)."""
@@ -362,18 +434,69 @@ class OpenAIBackend:
         return out
 
     def chat(
-        self, prompt: str, temperature: float = 0.0, num_predict: int | None = None
+        self,
+        prompt: str,
+        temperature: float = 0.0,
+        num_predict: int | None = None,
+        seed: int | None = None,
     ) -> str:
-        """One completion for a judge / pipeline call."""
-        resp = self._client.chat.completions.create(
-            model=self._model_id(),
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=num_predict,
-        )
+        """One completion for a judge / pipeline call.
+
+        ``num_predict <= 0`` (or ``None``) omits ``max_tokens`` so the server
+        generates until the model's EOS (bounded only by the context window).
+        ``seed`` (when set) makes the sample reproducible.
+        """
+        max_tokens = num_predict if (num_predict and num_predict > 0) else None
+        kwargs: dict = {
+            "model": self._model_id(),
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if seed is not None:
+            kwargs["seed"] = seed
+        resp = self._client.chat.completions.create(**kwargs)
         if not hasattr(resp, "choices"):
             raise RuntimeError(f"unexpected API response from {self.model}: {resp!r}")
         return (resp.choices[0].message.content or "").strip()
+
+    def chat_logprob(
+        self,
+        prompt: str,
+        temperature: float = 0.9,
+        num_predict: int | None = None,
+        seed: int | None = None,
+    ) -> GenSample:
+        """One completion with summed generated-token logprobs + token count.
+
+        The model's own token confidence is the surprise signal: a memorised
+        cliché is generated at very high probability (low surprisal) even when
+        produced in a divergent context; a freshly composed reply is not.
+        """
+        max_tokens = num_predict if (num_predict and num_predict > 0) else None
+        kwargs: dict = {
+            "model": self._model_id(),
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "logprobs": True,
+        }
+        if seed is not None:
+            kwargs["seed"] = seed
+        try:
+            resp = self._client.chat.completions.create(**kwargs)
+        except Exception:  # server may reject logprobs -> fall back to plain text
+            text = self.chat(prompt, temperature, num_predict, seed)
+            return GenSample(text, None, None)
+        choice = resp.choices[0]
+        lp: float | None = None
+        ntok: int | None = None
+        content = getattr(choice, "logprobs", None)
+        if content and getattr(content, "content", None):
+            toks = content.content
+            lp = float(sum(t.logprob for t in toks))
+            ntok = len(toks) or None
+        return GenSample((choice.message.content or "").strip(), lp, ntok)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed via an OpenAI-compatible embeddings endpoint."""
