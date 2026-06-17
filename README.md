@@ -52,6 +52,17 @@ install). By default it runs Gemma-4 E4B (an Unsloth GGUF, served locally) for
 both replies and judging. To use a model you've fine-tuned, point `CS_GEN_HF`
 at it — nothing else changes.
 
+### Fine-tuning
+
+As you run the app, you can make corrections to the answers by clicking the
+"Mark Wrong" button.Corrections will start accumulating alongside the valid exemplars;
+
+To pull the curated set for GRPO:
+
+```bash
+python -m creativity_steer.training_store --export
+```
+
 ## Credits
 
 This project builds directly on the measurement framework from:

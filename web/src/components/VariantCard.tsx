@@ -86,7 +86,7 @@ export function VariantCard({
           {onFrontier && <span className="tag frontier-tag">frontier</span>}
           {chosen && (
             <span className="tag chosen-tag">
-              {synthesized ? "top ranked (merged)" : "chosen response"}
+              {synthesized ? "selected → synthesis base" : "chosen response"}
             </span>
           )}
         </div>

@@ -133,6 +133,23 @@ def test_chain_emits_semantic_entropy_clusters_and_refine() -> None:
     assert by_type["response"][0]["text"].strip()
 
 
+def test_synthesis_self_revises_and_stays_consistent() -> None:
+    # Synthesis is anchored on the SELECTED candidate and self-evaluates; the
+    # event carries the revise count, and the final reply is marked synthesized.
+    b = MockBackend()
+    cfg = ChatConfig(
+        k=4, breadth_k=8, prime_n=3, synthesize=True, synthesis_passes=2,
+        coherence_paraphrases=1,
+    )
+    events = list(chat_turn_stream(b, b, EmbeddingEntailment(b, 0.9), [], MSG, cfg))
+    by_type: dict[str, list] = {}
+    for e in events:
+        by_type.setdefault(e["type"], []).append(e)
+    syn = by_type["synthesis"][0]
+    assert "revised" in syn and "kept_merge" in syn
+    assert by_type["response"][0]["text"].strip()
+
+
 def test_seed_is_threaded_and_runs() -> None:
     # The seed plumbs through every generation call without error, and a fixed
     # seed yields a stable result (Mock is deterministic; this guards the

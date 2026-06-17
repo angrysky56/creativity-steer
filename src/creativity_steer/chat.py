@@ -68,6 +68,8 @@ class ChatConfig:
     prime_n: int = 0  # 0 = no funnel; else keep this many diverse primes
     branch: bool = False  # deepen each prime candidate before scoring
     synthesize: bool = False  # merge the frontier set into one final reply
+    synthesis_passes: int = 2  # >1: self-evaluate the merge and revise if it is
+    #                            no better than the selected candidate
     # Connected-chain controls (each step is driven by, and checked against, the
     # real signals — semantic clusters + axis scores — so it cannot silently
     # collapse back to the obvious/common answer).
@@ -339,27 +341,59 @@ def _refine_primes(
     return cur, events
 
 
+def _axis_annotation(sc: dict[str, float]) -> str:
+    """The 3 strongest axes for a source, so synthesis can reason on evidence."""
+    if not sc:
+        return ""
+    top = sorted(sc.items(), key=lambda kv: kv[1], reverse=True)[:3]
+    return ", ".join(f"{a} {v:.2f}" for a, v in top)
+
+
 def _synthesize(
     gen: LLMBackend,
     history,
     user_msg: str,
-    sources: list[str],
+    chosen: str,
+    others: list[tuple[str, dict[str, float]]],
     max_tokens: int = 1024,
     rng_seed: int | None = None,
+    critique: str | None = None,
 ) -> str:
-    """Integrate the strongest distinct angles into ONE argument (not a stitch).
+    """Strengthen the SELECTED reply using compatible elements of the others.
 
-    The prompt forces integration into a single line of reasoning rather than
-    listing or concatenating the angles.
+    Anchored on the candidate the multi-axis selection actually chose — it does
+    not substitute a different premise (that was the "skipped its own
+    recommendation" bug). ``critique`` is passed on a revise pass so the model
+    knows its last attempt was no better than the selected reply.
     """
-    listing = "\n".join(f"- {s}" for s in sources)
+    listing = (
+        "\n".join(
+            f"{i + 1}. [{_axis_annotation(sc)}] {t}" for i, (t, sc) in enumerate(others)
+        )
+        or "(none)"
+    )
+    crit = (
+        f"\n\nYour previous attempt was judged NO BETTER than the selected reply "
+        f"— it likely just reformatted one idea instead of strengthening it. "
+        f"{critique} Produce a genuinely stronger version.\n"
+        if critique
+        else ""
+    )
     prompt = (
-        f"{_history_block(history)}User: {user_msg}\n\n"
-        f"Several DISTINCT angles on a reply:\n{listing}\n\n"
-        "Write ONE reply that INTEGRATES the strongest insight from these into a "
-        "single, coherent line of reasoning — not a list, not a tour of each "
-        "angle, but one unified original answer in which the ideas genuinely "
-        "build on each other. Do not hedge or fall back to the generic. Reply only."
+        f"{_history_block(history)}The user's ORIGINAL request was:\n{user_msg}\n\n"
+        f"The SELECTED best reply (it won the multi-axis selection) is:\n{chosen}\n\n"
+        f"Other strong candidates, each tagged with its measured strengths "
+        f"(higher = stronger):\n{listing}\n\n"
+        "Produce the final reply. Rules:\n"
+        "- BUILD ON the selected reply: keep its core idea, mechanism, and angle. "
+        "Only fold in an element from another candidate when it genuinely "
+        "strengthens the selected one AND truly fits. Do NOT swap in a different "
+        "premise.\n"
+        "- Match the request's form, length, and intent EXACTLY (a joke stays one "
+        "joke, short stays short).\n"
+        "- If nothing improves the selected reply, return it sharpened.\n"
+        f"- Do NOT pad, list, or lecture.{crit}\n"
+        "Reply only."
     )
     return gen.chat(
         prompt, temperature=0.6, num_predict=max_tokens, seed=rng_seed
@@ -690,31 +724,69 @@ def chat_turn_stream(
     }
 
     if config.synthesize:
-        prime = [texts[i] for i in range(len(texts)) if frontier[i]] or [texts[chosen]]
+        prime_idx = [i for i in range(len(texts)) if frontier[i]] or [chosen]
+        chosen_text = texts[chosen]
+        others = [
+            (texts[i], {a: round(scores[a][i], 3) for a in scores})
+            for i in prime_idx
+            if i != chosen
+        ]
         final = _synthesize(
             gen_backend,
             history,
             user_msg,
-            prime,
+            chosen_text,
+            others,
             config.response_tokens,
             rng_seed=_seed_at(config.seed, 9000),
         )
-        # Anti-collapse guard: if the merge fell back to the obvious answer
-        # (bidirectionally entails the modal), keep the selected frontier
-        # candidate instead — synthesis must not launder the common.
+        # Self-evaluate and revise: if the merge is no better than the selected
+        # reply, it probably just reformatted one idea -> critique and redo,
+        # up to synthesis_passes attempts. The model checks its OWN work.
+        revised = 0
+        for p in range(max(0, config.synthesis_passes - 1)):
+            cmp = judge_comparative(
+                judge_backend, history, user_msg, [chosen_text, final]
+            )
+            if cmp[1] > cmp[0]:  # the merge clearly improved on the selection
+                break
+            final = _synthesize(
+                gen_backend,
+                history,
+                user_msg,
+                chosen_text,
+                others,
+                config.response_tokens,
+                rng_seed=_seed_at(config.seed, 9100 + p),
+                critique="Integrate the distinct mechanisms; do not just rephrase.",
+            )
+            revised += 1
+        # Anti-collapse guard: a merge that fell back to the obvious answer is
+        # rejected. Final quality gate: keep the merge only if it is at least as
+        # good as the selected candidate, else ship the selected one.
         collapsed = bidirectional_equivalent(entailment, user_msg, modal, final)
+        kept_merge = not collapsed
         if collapsed:
-            final = texts[chosen]
+            final = chosen_text
+        else:
+            cmp = judge_comparative(
+                judge_backend, history, user_msg, [chosen_text, final]
+            )
+            if cmp[1] < cmp[0]:
+                final = chosen_text
+                kept_merge = False
         yield {
             "type": "synthesis",
-            "sources": len(prime),
+            "sources": len(prime_idx),
             "collapsed_to_modal": collapsed,
+            "kept_merge": kept_merge,
+            "revised": revised,
         }
         yield {
             "type": "response",
             "text": final,
             "index": chosen,
-            "synthesized": not collapsed,
+            "synthesized": kept_merge,
         }
     else:
         yield {"type": "response", "text": texts[chosen], "index": chosen}

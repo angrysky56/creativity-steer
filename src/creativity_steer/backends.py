@@ -256,7 +256,7 @@ class MockBackend:
         if "Rewrite (reply only)" in prompt:  # guided refine step
             cand = prompt.split("Current reply:\n", 1)[-1].split("\n\n", 1)[0]
             return cand.strip() or "mock refined reply"
-        if "INTEGRATES the strongest" in prompt:  # synthesis
+        if "won the multi-axis selection" in prompt:  # synthesis (anchored)
             found = next((t for t in self._quality if t in prompt), None)
             return found or "mock synthesis"
         if "Restate the following" in prompt:  # coherence paraphrase
@@ -307,6 +307,22 @@ class MockBackend:
             return "[[POINT]] mock analysis A. [[POINT]] mock analysis B."
         if "Extract a concise, factual lesson" in prompt:
             return "Apples fall down."
+        if "Answer (YES/NO)" in prompt:  # correction detector
+            # Scope to the user's new-message segment, not the instruction text.
+            seg = prompt.split("User's new message:\n", 1)[-1]
+            seg = seg.split("\n\nAnswer", 1)[0].lower()
+            hit = any(
+                k in seg
+                for k in (
+                    "wrong",
+                    "not right",
+                    "incorrect",
+                    "actually",
+                    "that's not",
+                    "no,",
+                )
+            )
+            return "YES" if hit else "NO"
         return "mock response"
 
     def chat_logprob(

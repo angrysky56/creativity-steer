@@ -1331,6 +1331,15 @@ input[type="range"]::-moz-range-progress {
 .lg-dot.modal { background: var(--panel2); border: 1px solid var(--muted); }
 .tooltip-snippet { font-style: italic; }
 
+/* Correction flag on assistant replies */
+.correction-row { margin-top: 4px; padding-left: 2px; }
+.correction-btn {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  font-size: 11px; color: var(--text-muted); opacity: 0.55; border-radius: 4px;
+}
+.correction-btn:hover { opacity: 1; color: hsl(0, 70%, 65%); }
+.correction-done { font-size: 11px; color: hsl(0, 70%, 65%); }
+
 /* Trace advisories (floor not met, synthesis collapse) */
 .trace-advisory {
   margin: 8px 0; padding: 9px 12px; border-radius: 8px; font-size: 12px;

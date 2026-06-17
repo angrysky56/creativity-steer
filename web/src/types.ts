@@ -103,6 +103,7 @@ export type TraceEvent =
     }
   | { type: "synthesis"; sources: number; collapsed_to_modal?: boolean }
   | { type: "grounding"; memory: number; tools: number; snippets: string[] }
+  | { type: "correction"; captured: boolean }
   | { type: "error"; message: string };
 
 export interface ChatMessage {

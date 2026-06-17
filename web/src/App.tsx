@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import type { ChangeEvent } from "react";
-import { streamChat } from "./api";
+import { streamChat, flagCorrection } from "./api";
 import { TracePanel } from "./components/Trace";
 import { emptyTrace } from "./types";
 import type { ChatMessage, Config, Trace, ChatSession } from "./types";
@@ -158,6 +158,15 @@ export function App() {
   );
   const [configExpanded, setConfigExpanded] = useState(false);
   const [healthy, setHealthy] = useState<boolean | null>(null);
+  const [flagged, setFlagged] = useState<Record<number, boolean>>({});
+
+  async function markWrong(i: number) {
+    const failed = messages[i]?.content ?? "";
+    const prior = messages[i - 1]?.role === "user" ? messages[i - 1].content : "";
+    const ok = await flagCorrection(failed, prior);
+    if (ok) setFlagged((f) => ({ ...f, [i]: true }));
+  }
+
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -574,6 +583,26 @@ export function App() {
                         </div>
                       )}
                     </div>
+                    {isAssistant && (
+                      <div className="correction-row">
+                        {flagged[i] ? (
+                          <span className="correction-done" title="Stored as a negative training example">
+                            ✗ marked wrong
+                          </span>
+                        ) : (
+                          <button
+                            className="correction-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void markWrong(i);
+                            }}
+                            title="Flag this reply as wrong — stored as an asymmetric negative training example (corrections, not approval)"
+                          >
+                            ✗ wrong
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

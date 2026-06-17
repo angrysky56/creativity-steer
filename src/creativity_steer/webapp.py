@@ -31,6 +31,13 @@ from creativity_steer.entailment import EmbeddingEntailment, make_entailment
 from creativity_steer.grounding import DefaultGrounding
 from creativity_steer.mcp_client import McpClient
 from creativity_steer.memory import build_memory
+from creativity_steer.training_store import (
+    assess_validity,
+    build_correction_record,
+    build_record,
+    build_training_store,
+    detect_correction,
+)
 
 LOG_PATH = Path("results/conversations.jsonl")
 _state: dict | None = None
@@ -64,6 +71,7 @@ class ChatRequest(BaseModel):
     synthesize: bool = False
     trajectory: bool = False
     refine_passes: int = 0
+    synthesis_passes: int = 2
     # generation length budgets (tokens); <= 0 means unlimited (model EOS).
     # Defaults come from .env so the whole system can be tuned in one place.
     modal_tokens: int = Field(default_factory=lambda: _env_int("CS_MODAL_TOKENS", 256))
@@ -94,6 +102,7 @@ def _build_state() -> dict:
     )
 
     memory = build_memory(embed)
+    training = build_training_store(embed)
     grounding = None
     if os.getenv("CS_GROUNDING", "off").lower() == "on" and memory is not None:
         mcp_client = McpClient().connect()
@@ -107,6 +116,7 @@ def _build_state() -> dict:
         "embed": embed,
         "ent": ent,
         "memory": memory,
+        "training": training,
         "grounding": grounding,
         "backend": backend_summary(),
     }
@@ -151,6 +161,14 @@ def _log_turn(req: ChatRequest, events: list[dict], state: dict) -> None:
     with LOG_PATH.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
 
+    # Keep process-valid turns as creativity training data (separate Chroma
+    # collection). Validity is axis/process-based, never user approval.
+    store = state.get("training")
+    if store is not None:
+        valid, _reason = assess_validity(by_type)
+        if valid:
+            store.add(build_record(req.message, req.history, by_type))
+
 
 app = FastAPI(title="creativity-steer chat")
 app.add_middleware(
@@ -190,6 +208,47 @@ def api_consolidate(req: ConsolidateRequest) -> dict:
     return {"consolidated": len(new_memories)}
 
 
+def _maybe_capture_correction(req: ChatRequest, state: dict) -> dict | None:
+    """If the new message corrects the previous reply, store it as an asymmetric
+    negative example and return a 'correction' trace event (else None)."""
+    store = state.get("training")
+    if store is None or os.getenv("CS_DETECT_CORRECTIONS", "on").lower() != "on":
+        return None
+    hist = req.history or []
+    if not hist or hist[-1].get("role") != "assistant":
+        return None
+    failed = hist[-1].get("content", "")
+    prior_prompt = next(
+        (m.get("content", "") for m in reversed(hist[:-1]) if m.get("role") == "user"),
+        "",
+    )
+    try:
+        if not detect_correction(state["judge"], failed, req.message):
+            return None
+        store.add(build_correction_record(prior_prompt, failed, req.message))
+    except Exception:  # never break a turn over correction capture
+        return None
+    return {"type": "correction", "captured": True}
+
+
+class CorrectionRequest(BaseModel):
+    failed_reply: str
+    prior_prompt: str = ""
+    correction: str = ""
+
+
+@app.post("/api/correction")
+def correction(req: CorrectionRequest) -> dict:
+    """Explicit correction flag from the UI (no judge call, no generation)."""
+    store = get_state().get("training")
+    if store is None:
+        return {"stored": False, "reason": "training store disabled"}
+    ok = store.add(
+        build_correction_record(req.prior_prompt, req.failed_reply, req.correction)
+    )
+    return {"stored": bool(ok)}
+
+
 @app.post("/api/chat")
 def chat(req: ChatRequest) -> StreamingResponse:
     state = get_state()
@@ -208,6 +267,7 @@ def chat(req: ChatRequest) -> StreamingResponse:
         prime_n=req.prime_n,
         branch=req.branch,
         synthesize=req.synthesize,
+        synthesis_passes=req.synthesis_passes,
         trajectory=req.trajectory,
         refine_passes=req.refine_passes,
         modal_tokens=req.modal_tokens,
@@ -219,6 +279,10 @@ def chat(req: ChatRequest) -> StreamingResponse:
     def event_gen():
         collected: list[dict] = []
         try:
+            capt = _maybe_capture_correction(req, state)
+            if capt:
+                collected.append(capt)
+                yield f"data: {json.dumps(capt)}\n\n"
             for ev in chat_turn_stream(
                 state["gen"],
                 state["judge"],
